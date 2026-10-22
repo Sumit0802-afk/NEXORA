@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "workspaces": ["apps/web", "packages/design-schema"],
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "dev:web": "npm --workspace apps/web run dev",
     "lint": "npm --workspace apps/web run lint",
     "typecheck": "npm --workspace apps/web run typecheck"

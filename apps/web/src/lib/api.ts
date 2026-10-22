@@ -86,17 +86,28 @@ export type LayoutCandidate = {
   scores: Record<string, number>;
   highlights: string[];
   warnings: string[];
-  stats: { roomCount: number; builtUpArea: number; plotArea: number };
+  stats: { roomCount: number; builtUpArea: number; plotArea: number; floors?: number };
   design: FloorPlan;
+  /** Present only when Claude is enabled on the API and the explanation call succeeded. */
+  explanation?: { headline: string; pros: string[]; cons: string[] } | null;
 };
 
+export type AiStatus = { enabled: boolean; provider: string; model: string | null };
+
 export type LayoutResult = {
-  requirements: { counts: Record<string, number>; notes: string[] };
+  requirements: { counts: Record<string, number>; notes: string[]; floors?: number };
+  /** Room counts per floor, ground first; one entry for single-floor homes. */
+  floors?: { name: string; counts: Record<string, number> }[];
   candidates: LayoutCandidate[];
   rejectedCount: number;
   message: string | null;
+  ai?: AiStatus & { used: boolean; error: string | null };
   disclaimer: string;
 };
+
+export function getAiStatus(): Promise<AiStatus> {
+  return request<AiStatus>("/layouts/ai-status");
+}
 
 export function generateLayouts(payload: {
   roomList: string;
@@ -105,6 +116,8 @@ export function generateLayouts(payload: {
   plotLength: number;
   units: "ft" | "m";
   seed?: number;
+  /** 0 = read from the brief ("G+1", "duplex"…). */
+  floors?: number;
 }): Promise<LayoutResult> {
   return request<LayoutResult>("/layouts/generate", { method: "POST", body: JSON.stringify(payload) });
 }

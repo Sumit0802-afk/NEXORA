@@ -3,6 +3,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.domain.ai import AIUnavailable, ai_explain_candidates, ai_read_brief, ai_status
 from app.domain.layout import PlotTooSmall, generate_candidates
 from app.domain.requirements import parse_requirements
 
@@ -17,29 +18,59 @@ class LayoutRequest(BaseModel):
     plot_length: float = Field(gt=0, le=1000, alias="plotLength")
     units: str = Field(default="ft", pattern="^(ft|m)$")
     seed: int = Field(default=0, ge=0, le=1_000_000)
+    floors: int = Field(default=0, ge=0, le=4, description="0 reads the floor count from the brief.")
 
     model_config = {"populate_by_name": True}
 
 
 def _generate(payload: LayoutRequest) -> dict:
-    requirements = parse_requirements(payload.room_list, payload.description)
+    ai = {**ai_status(), "used": False, "error": None}
+    requirements = None
+    if ai["enabled"]:
+        try:
+            requirements = ai_read_brief(payload.room_list, payload.description, payload.floors)
+            ai["used"] = True
+        except AIUnavailable as err:
+            ai["error"] = str(err)
+    if requirements is None:
+        requirements = parse_requirements(payload.room_list, payload.description, payload.floors)
     try:
         result = generate_candidates(requirements, payload.plot_width, payload.plot_length, payload.units, payload.seed)
     except PlotTooSmall as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
+    if ai["enabled"] and not ai["error"] and result["candidates"]:
+        brief = "\n".join(part for part in (payload.room_list, payload.description) if part.strip())
+        try:
+            notes = ai_explain_candidates(result["candidates"], brief, payload.units)
+            for candidate in result["candidates"]:
+                candidate["explanation"] = notes.get(candidate["id"])
+            ai["used"] = True
+        except AIUnavailable as err:
+            ai["error"] = str(err)
     message = None
     if not result["candidates"]:
         reasons = sorted({r for rejected in result["rejected"] for r in rejected["reasons"]})
         message = ("No layout fits these rooms on this plot. "
                    + (f"For example: {reasons[0]} " if reasons else "")
-                   + "Try a larger plot or fewer rooms.")
+                   + ("Try a larger plot, fewer rooms or another floor." if requirements.floors < 4
+                      else "Try a larger plot or fewer rooms."))
+    reading = requirements.as_dict()
+    reading["notes"] += result.get("notes", [])
     return {
-        "requirements": requirements.as_dict(),
+        "requirements": reading,
+        "floors": result.get("floors", []),
         "candidates": result["candidates"],
         "rejectedCount": len(result["rejected"]),
         "message": message,
+        "ai": ai,
         "disclaimer": "Generated plans are conceptual starting points, not construction drawings.",
     }
+
+
+@layouts_router.get("/ai-status")
+def get_ai_status() -> dict:
+    """Whether Claude is configured, so the brief form can say so. Never exposes the key."""
+    return ai_status()
 
 
 @layouts_router.post("/generate")

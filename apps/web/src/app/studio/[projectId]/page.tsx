@@ -11,6 +11,7 @@ import {
   Copy,
   DoorOpen,
   Download,
+  FileText,
   Hand,
   Maximize2,
   Minus,
@@ -32,6 +33,7 @@ import { FloorPlanCanvas, OPENING_WIDTH, type FloorPlanMode, type Selection } fr
 import { usePlanContext } from "./plan-context";
 import { polygonArea, polygonPerimeter } from "@/lib/geometry";
 import { validateDesign } from "@/lib/validation";
+import { floorName, floorShortName } from "@/lib/floors";
 import type { FloorPlan, RoomType } from "@houseplan/design-schema";
 import type Konva from "konva";
 
@@ -70,6 +72,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
   const [roomType, setRoomType] = useState<RoomType>("bedroom");
   const [openingKind, setOpeningKind] = useState<"door" | "window">("door");
   const [selection, setSelection] = useState<Selection>(null);
+  const [levelIndex, setLevelIndex] = useState(0);
   const [split3d, setSplit3d] = useState(false);
   const [cutaway3d, setCutaway3d] = useState(true);
   const [measureDistance, setMeasureDistance] = useState<number | null>(null);
@@ -100,6 +103,43 @@ export default function StudioPage({ params }: { params: { projectId: string } }
     setZoom(Math.round(fit * 100) / 100);
   };
 
+  const floorCount = plan?.levels.length ?? 1;
+  useEffect(() => {
+    if (levelIndex > floorCount - 1) setLevelIndex(Math.max(floorCount - 1, 0));
+  }, [floorCount, levelIndex]);
+
+  const switchLevel = useCallback((index: number) => {
+    setLevelIndex(index);
+    setSelection(null);
+  }, []);
+
+  /** Selects a room on whichever floor holds it (3D clicks and validation can point at any floor). */
+  const selectRoomAnyFloor = useCallback(
+    (id: string | null) => {
+      if (!id || !plan) return setSelection(null);
+      const index = plan.levels.findIndex((lv) => lv.rooms.some((r) => r.id === id));
+      if (index >= 0) setLevelIndex(index);
+      setSelection({ type: "room", id });
+    },
+    [plan]
+  );
+
+  const addFloor = useCallback(() => {
+    if (!plan || plan.levels.length >= 4) return;
+    const top = plan.levels[plan.levels.length - 1];
+    const ids = ["ground", "first", "second", "third"];
+    const id = ids[plan.levels.length] ?? `level-${plan.levels.length}`;
+    // Carry the staircase up so the new floor is reachable; everything else starts empty.
+    const stairs = top.rooms
+      .filter((r) => r.type === "staircase")
+      .map((r) => ({ ...r, id: `${id}-${r.id.replace(/^[a-z]+-(?=room-)/, "")}` }));
+    const level = { id, elevation: top.elevation + top.wallHeight, wallHeight: top.wallHeight, rooms: stairs, walls: [], openings: [], furniture: [] };
+    pushPlan({ ...plan, plot: { ...plan.plot, floors: plan.levels.length + 1 }, levels: [...plan.levels, level] });
+    setLevelIndex(plan.levels.length);
+    setSelection(null);
+    setStatus(`Added ${floorName(plan.levels.length)}`);
+  }, [plan, pushPlan, setStatus]);
+
   const moveRoom = useCallback(
     (roomId: string, dx: number, dy: number) => {
       if (!plan) return;
@@ -117,7 +157,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
       pushPlan(next);
       setStatus(`Moved ${roomId}`);
     },
-    [plan, pushPlan, setStatus]
+    [plan, pushPlan, setStatus, levelIndex]
   );
 
   const resizeRoom = useCallback(
@@ -133,20 +173,20 @@ export default function StudioPage({ params }: { params: { projectId: string } }
       pushPlan(next);
       setStatus("Resized room");
     },
-    [plan, pushPlan, setStatus]
+    [plan, pushPlan, setStatus, levelIndex]
   );
 
   const addRoom = useCallback(
     (polygon: [number, number][]) => {
       if (!plan) return;
-      const existingOfType = plan.levels[0]?.rooms.filter((r) => r.type === roomType).length ?? 0;
+      const existingOfType = plan.levels[levelIndex]?.rooms.filter((r) => r.type === roomType).length ?? 0;
       const typeLabel = ROOM_TYPES.find((t) => t.value === roomType)?.label ?? "Room";
       const name = existingOfType === 0 ? typeLabel : `${typeLabel} ${existingOfType + 1}`;
       const id = genId("room");
       const next: FloorPlan = {
         ...plan,
         levels: plan.levels.map((level, i) =>
-          i === 0 ? { ...level, rooms: [...level.rooms, { id, type: roomType, name, polygon }] } : level
+          i === levelIndex ? { ...level, rooms: [...level.rooms, { id, type: roomType, name, polygon }] } : level
         ),
       };
       pushPlan(next);
@@ -154,7 +194,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
       setMode("select");
       setStatus(`Added ${name}`);
     },
-    [plan, pushPlan, roomType, setStatus]
+    [plan, pushPlan, roomType, setStatus, levelIndex]
   );
 
   const addWall = useCallback(
@@ -164,19 +204,19 @@ export default function StudioPage({ params }: { params: { projectId: string } }
       const wall = { id, start, end, thickness: 0.5, height: 10, kind: "interior" as const };
       const next: FloorPlan = {
         ...plan,
-        levels: plan.levels.map((level, i) => (i === 0 ? { ...level, walls: [...level.walls, wall] } : level)),
+        levels: plan.levels.map((level, i) => (i === levelIndex ? { ...level, walls: [...level.walls, wall] } : level)),
       };
       pushPlan(next);
       setSelection({ type: "wall", id });
       setStatus("Added a wall");
     },
-    [plan, pushPlan, setStatus]
+    [plan, pushPlan, setStatus, levelIndex]
   );
 
   const addOpening = useCallback(
     (wall: { start: [number, number]; end: [number, number] }, offset: number, kind: "door" | "window") => {
       if (!plan) return;
-      const existingWalls = plan.levels[0]?.walls ?? [];
+      const existingWalls = plan.levels[levelIndex]?.walls ?? [];
       let wallEntry = existingWalls.find(
         (w) =>
           (sameUnitPoint(w.start, wall.start) && sameUnitPoint(w.end, wall.end)) ||
@@ -192,20 +232,20 @@ export default function StudioPage({ params }: { params: { projectId: string } }
       const next: FloorPlan = {
         ...plan,
         levels: plan.levels.map((level, i) =>
-          i === 0 ? { ...level, walls, openings: [...level.openings, opening] } : level
+          i === levelIndex ? { ...level, walls, openings: [...level.openings, opening] } : level
         ),
       };
       pushPlan(next);
       setSelection({ type: "opening", id: openingId });
       setStatus(`Added ${kind === "door" ? "a door" : "a window"}`);
     },
-    [plan, pushPlan, setStatus]
+    [plan, pushPlan, setStatus, levelIndex]
   );
 
   const deleteSelected = useCallback(() => {
     if (!plan || !selection) return;
     if (selection.type === "room") {
-      const name = plan.levels[0]?.rooms.find((r) => r.id === selection.id)?.name ?? "room";
+      const name = plan.levels[levelIndex]?.rooms.find((r) => r.id === selection.id)?.name ?? "room";
       pushPlan({
         ...plan,
         levels: plan.levels.map((level) => ({ ...level, rooms: level.rooms.filter((r) => r.id !== selection.id) })),
@@ -229,21 +269,21 @@ export default function StudioPage({ params }: { params: { projectId: string } }
       setStatus("Deleted opening");
     }
     setSelection(null);
-  }, [plan, selection, pushPlan, setStatus]);
+  }, [plan, selection, pushPlan, setStatus, levelIndex]);
 
   const duplicateSelectedRoom = useCallback(() => {
     if (!plan || selection?.type !== "room") return;
-    const room = plan.levels[0]?.rooms.find((r) => r.id === selection.id);
+    const room = plan.levels[levelIndex]?.rooms.find((r) => r.id === selection.id);
     if (!room) return;
     const id = genId("room");
     const copy = { ...room, id, name: `${room.name} copy`, polygon: room.polygon.map(([x, y]) => [x + 2, y + 2] as [number, number]) };
     pushPlan({
       ...plan,
-      levels: plan.levels.map((level, i) => (i === 0 ? { ...level, rooms: [...level.rooms, copy] } : level)),
+      levels: plan.levels.map((level, i) => (i === levelIndex ? { ...level, rooms: [...level.rooms, copy] } : level)),
     });
     setSelection({ type: "room", id });
     setStatus(`Duplicated ${room.name}`);
-  }, [plan, selection, pushPlan, setStatus]);
+  }, [plan, selection, pushPlan, setStatus, levelIndex]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -319,16 +359,16 @@ export default function StudioPage({ params }: { params: { projectId: string } }
   };
 
   const selectedRoom = useMemo(
-    () => (selection?.type === "room" ? plan?.levels[0]?.rooms.find((r) => r.id === selection.id) ?? null : null),
-    [plan, selection]
+    () => (selection?.type === "room" ? plan?.levels[levelIndex]?.rooms.find((r) => r.id === selection.id) ?? null : null),
+    [plan, selection, levelIndex]
   );
   const selectedWall = useMemo(
-    () => (selection?.type === "wall" ? plan?.levels[0]?.walls.find((w) => w.id === selection.id) ?? null : null),
-    [plan, selection]
+    () => (selection?.type === "wall" ? plan?.levels[levelIndex]?.walls.find((w) => w.id === selection.id) ?? null : null),
+    [plan, selection, levelIndex]
   );
   const selectedOpening = useMemo(
-    () => (selection?.type === "opening" ? plan?.levels[0]?.openings.find((o) => o.id === selection.id) ?? null : null),
-    [plan, selection]
+    () => (selection?.type === "opening" ? plan?.levels[levelIndex]?.openings.find((o) => o.id === selection.id) ?? null : null),
+    [plan, selection, levelIndex]
   );
 
   const issues = useMemo(() => (plan ? validateDesign(plan) : []), [plan]);
@@ -450,8 +490,12 @@ export default function StudioPage({ params }: { params: { projectId: string } }
           </button>
           <button className="button" onClick={handleExport}>
             <Download size={15} style={{ verticalAlign: "middle", marginRight: 6 }} />
-            Export
+            PNG
           </button>
+          <Link className="button primary" href={`/studio/${params.projectId}/sheet`}>
+            <FileText size={15} style={{ verticalAlign: "middle", marginRight: 6 }} />
+            Plan sheet / PDF
+          </Link>
         </div>
       </header>
       <div className="studio-layout">
@@ -569,7 +613,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
                 <button
                   key={issue.id}
                   className={`validation-item ${issue.severity}`}
-                  onClick={() => issue.roomId && setSelection({ type: "room", id: issue.roomId })}
+                  onClick={() => issue.roomId && selectRoomAnyFloor(issue.roomId)}
                   disabled={!issue.roomId}
                 >
                   {issue.message}
@@ -579,6 +623,24 @@ export default function StudioPage({ params }: { params: { projectId: string } }
           )}
         </aside>
         <section className="studio-main">
+          <div className="floor-tabs" role="tablist" aria-label="Floor">
+            {plan.levels.map((lv, i) => (
+              <button
+                key={lv.id}
+                role="tab"
+                aria-selected={i === levelIndex}
+                className={`floor-tab${i === levelIndex ? " active" : ""}`}
+                onClick={() => switchLevel(i)}
+              >
+                {floorShortName(i)}<small>{lv.rooms.length} rooms</small>
+              </button>
+            ))}
+            {plan.levels.length < 4 && (
+              <button className="floor-tab add" onClick={addFloor} title="Add a floor above">
+                <Plus size={13}/> Add floor
+              </button>
+            )}
+          </div>
           <div className="tool-row">
             <button className="tool" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
               <Undo2 size={14} style={{ verticalAlign: "middle", marginRight: 5 }} />
@@ -619,6 +681,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
             <FloorPlanCanvas
               ref={stageRef}
               plan={plan}
+              levelIndex={levelIndex}
               selection={selection}
               onSelect={setSelection}
               onMoveRoom={moveRoom}
@@ -649,14 +712,16 @@ export default function StudioPage({ params }: { params: { projectId: string } }
                 view="isometric"
                 showGrid={false}
                 cutaway={cutaway3d}
+                topLevel={levelIndex}
                 selectedRoomId={selection?.type === "room" ? selection.id : null}
-                onSelectRoom={(id) => setSelection(id ? { type: "room", id } : null)}
+                onSelectRoom={selectRoomAnyFloor}
               />
             </div>
           )}
           </div>
           <div className="status-bar">
             <span>{plan.plot.width} × {plan.plot.length} {plan.units}</span>
+            {plan.levels.length > 1 && <span>{floorName(levelIndex)}</span>}
             <span>Zoom {Math.round(zoom * 100)}%</span>
             <span>Units: {plan.units}</span>
             {mode === "measure" && measureDistance !== null && <span>Measured: {measureDistance.toFixed(1)} {plan.units}</span>}

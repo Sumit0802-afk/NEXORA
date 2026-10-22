@@ -24,6 +24,8 @@ const OPENING_WIDTH = 3;
 
 export const FloorPlanCanvas = forwardRef<Konva.Stage, {
   plan: FloorPlan;
+  /** Which floor to edit (0 = ground). Upper floors show the floor below as a faint outline. */
+  levelIndex?: number;
   selection?: Selection;
   onSelect?: (selection: Selection) => void;
   onMoveRoom?: (roomId: string, dx: number, dy: number) => void;
@@ -41,6 +43,7 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
 }>(function FloorPlanCanvas(
   {
     plan,
+    levelIndex = 0,
     selection = null,
     onSelect,
     onMoveRoom,
@@ -63,9 +66,11 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
   const offsetY = 42;
   const width = 760;
   const height = 560;
-  const rooms = plan.levels[0]?.rooms ?? [];
-  const walls = plan.levels[0]?.walls ?? [];
-  const openings = plan.levels[0]?.openings ?? [];
+  const level = plan.levels[levelIndex] ?? plan.levels[0];
+  const rooms = level?.rooms ?? [];
+  const walls = level?.walls ?? [];
+  const openings = level?.openings ?? [];
+  const roomsBelow = levelIndex > 0 ? plan.levels[levelIndex - 1]?.rooms ?? [] : [];
   const [draft, setDraft] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [measureLine, setMeasureLine] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [hoverEdge, setHoverEdge] = useState<{ start: [number, number]; end: [number, number]; point: [number, number] } | null>(null);
@@ -222,6 +227,22 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
             strokeWidth={4}
             fill="#FFFDF7"
           />
+          {roomsBelow.map((room) => {
+            const { minX, minY, maxX, maxY } = roomBounds(room);
+            return (
+              <Rect
+                key={`below-${room.id}`}
+                x={offsetX + minX * scale}
+                y={offsetY + minY * scale}
+                width={(maxX - minX) * scale}
+                height={(maxY - minY) * scale}
+                stroke="#B9B4CC"
+                strokeWidth={1}
+                dash={[6, 5]}
+                listening={false}
+              />
+            );
+          })}
           {rooms.map((room, index) => {
             const isSelected = selection?.type === "room" && selection.id === room.id;
             const { minX, minY, maxX, maxY } = isSelected && resizeDraft ? resizeDraft : roomBounds(room);

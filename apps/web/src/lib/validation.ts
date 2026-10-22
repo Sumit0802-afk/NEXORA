@@ -1,10 +1,13 @@
 import type { FloorPlan, Room } from "@houseplan/design-schema";
+import { floorName } from "./floors";
 
 export type ValidationIssue = {
   id: string;
   severity: "error" | "warning";
   message: string;
   roomId?: string;
+  /** Floor the issue is on (0 = ground). */
+  levelIndex?: number;
 };
 
 function roomBoundsOf(room: Room) {
@@ -24,13 +27,20 @@ function rectsOverlap(a: ReturnType<typeof roomBoundsOf>, b: ReturnType<typeof r
  */
 export function validateDesign(plan: FloorPlan): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const level = plan.levels[0];
-  if (!level) return issues;
-
   if (!(plan.plot.width > 0) || !(plan.plot.length > 0)) {
     issues.push({ id: "plot-dims", severity: "error", message: "Plot width and length must both be positive." });
   }
+  plan.levels.forEach((level, levelIndex) => {
+    const where = plan.levels.length > 1 ? `${floorName(levelIndex)}: ` : "";
+    for (const issue of validateLevel(plan, level)) {
+      issues.push({ ...issue, id: levelIndex === 0 ? issue.id : `${level.id}-${issue.id}`, message: where + issue.message, levelIndex });
+    }
+  });
+  return issues;
+}
 
+function validateLevel(plan: FloorPlan, level: FloorPlan["levels"][number]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
   const bounds = level.rooms.map((room) => ({ room, bounds: roomBoundsOf(room) }));
 
   for (const { room, bounds: b } of bounds) {

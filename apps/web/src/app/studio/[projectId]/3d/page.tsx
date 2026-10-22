@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, Camera, Grid3x3, Maximize2, Orbit, RectangleHorizontal, Scissors, SquareDashed, Tag } from "lucide-react";
 import { HouseScene, type HouseSceneHandle, type SceneView } from "@/components/viewer/HouseScene";
 import { usePlanContext } from "../plan-context";
+import { floorShortName } from "@/lib/floors";
 
 const VIEW_OPTIONS: { value: SceneView; label: string }[] = [
   { value: "perspective", label: "Perspective" },
@@ -22,10 +23,12 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
   const [cutaway, setCutaway] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [topLevel, setTopLevel] = useState<number | undefined>(undefined); // undefined = every floor
   const sceneRef = useRef<HouseSceneHandle | null>(null);
   const [status, setStatus] = useState("");
 
-  const rooms = plan?.levels[0]?.rooms ?? [];
+  const rooms = plan?.levels.flatMap((lv) => lv.rooms) ?? [];
+  const levelCount = plan?.levels.length ?? 1;
   const selected = rooms.find((r) => r.id === selectedRoomId) ?? null;
   const selectedSize = selected
     ? (() => {
@@ -82,6 +85,20 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                 </button>
               ))}
             </div>
+            {levelCount > 1 && (
+              <div className="viewer-toggle" role="group" aria-label="Floors shown">
+                {[undefined, ...Array.from({ length: levelCount }, (_, i) => i)].map((lv) => (
+                  <button
+                    key={lv ?? "all"}
+                    className={`viewer-toggle-btn${topLevel === lv ? " active" : ""}`}
+                    onClick={() => { setTopLevel(lv); setSelectedRoomId(null); }}
+                    title={lv === undefined ? "Show every floor" : `Show up to the ${floorShortName(lv).toLowerCase()} floor`}
+                  >
+                    {lv === undefined ? "All floors" : `Up to ${floorShortName(lv)}`}
+                  </button>
+                ))}
+              </div>
+            )}
             <button className={`viewer-toggle-btn standalone${cutaway ? " active" : ""}`} onClick={() => setCutaway((c) => !c)} aria-pressed={cutaway}>
               <Scissors size={14} style={icon}/> Cutaway
             </button>
@@ -116,6 +133,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
               showGrid={showGrid}
               cutaway={cutaway}
               showLabels={showLabels}
+              topLevel={topLevel}
               selectedRoomId={selectedRoomId}
               onSelectRoom={setSelectedRoomId}
             />

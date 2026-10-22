@@ -17,6 +17,9 @@ export type RoomFloor = {
   id: string;
   name: string;
   type: RoomType;
+  /** Floor index (0 = ground) and the height its slab sits at. */
+  level: number;
+  baseY: number;
   centerX: number;
   centerZ: number;
   width: number;
@@ -35,6 +38,7 @@ export type OpeningMarker = {
 /** A door leaf, hinged at (hingeX, hingeZ) and drawn swung open into the plot. */
 export type DoorLeaf = {
   id: string;
+  baseY: number;
   hingeX: number;
   hingeZ: number;
   angle: number;
@@ -62,6 +66,8 @@ export type SceneGeometry = {
   plotWidth: number;
   plotDepth: number;
   wallHeight: number;
+  /** Number of floors included (levels 0..levelCount-1). */
+  levelCount: number;
 };
 
 const EPS = 0.01;
@@ -113,14 +119,36 @@ function explicitWallFor(walls: Wall[], line: Line, a: number, b: number): Wall 
 /**
  * Builds Three.js-ready geometry (centered at the plot's center, plan Y -> world Z) from a canonical
  * floor plan. Room edges on the same line are merged into one wall network (no duplicate walls at
- * T-junctions), and doors/windows are cut out of the walls they sit on.
+ * T-junctions), and doors/windows are cut out of the walls they sit on. Floors stack at their
+ * elevation; `topLevel` hides everything above that floor (default: show every floor).
  */
-export function buildSceneGeometry(plan: FloorPlan): SceneGeometry {
-  const level = plan.levels[0];
+export function buildSceneGeometry(plan: FloorPlan, topLevel?: number): SceneGeometry {
+  const last = Math.min(topLevel ?? plan.levels.length - 1, plan.levels.length - 1);
+  const ft = plan.units === "m" ? 0.3048 : 1;
+  const out: SceneGeometry = {
+    walls: [], floors: [], openings: [], doors: [], windows: [],
+    plotWidth: plan.plot.width, plotDepth: plan.plot.length,
+    wallHeight: plan.levels[0]?.wallHeight || 10 * ft, levelCount: Math.max(last + 1, 1),
+  };
+  for (let i = 0; i <= last; i++) {
+    const part = buildLevel(plan, i);
+    out.walls.push(...part.walls);
+    out.floors.push(...part.floors);
+    out.openings.push(...part.openings);
+    out.doors.push(...part.doors);
+    out.windows.push(...part.windows);
+  }
+  return out;
+}
+
+function buildLevel(plan: FloorPlan, levelIndex: number) {
+  const level = plan.levels[levelIndex];
   const rooms = level?.rooms ?? [];
   const explicitWalls = level?.walls ?? [];
   const ft = plan.units === "m" ? 0.3048 : 1;
   const wallHeight = level?.wallHeight || 10 * ft;
+  const elevation = levelIndex === 0 ? 0 : level?.elevation ?? levelIndex * wallHeight;
+  const tagPrefix = levelIndex === 0 ? "" : `${level?.id ?? levelIndex}-`;
   const W = plan.plot.width;
   const L = plan.plot.length;
   const cx = W / 2;
@@ -132,7 +160,7 @@ export function buildSceneGeometry(plan: FloorPlan): SceneGeometry {
   const floors: RoomFloor[] = rects.map((r) => {
     const room = rooms.find((x) => x.id === r.id)!;
     const [fx, fz] = toWorld((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2);
-    return { id: r.id, name: room.name, type: r.type, centerX: fx, centerZ: fz, width: r.x1 - r.x0, depth: r.y1 - r.y0 };
+    return { id: r.id, name: room.name, type: r.type, level: levelIndex, baseY: elevation, centerX: fx, centerZ: fz, width: r.x1 - r.x0, depth: r.y1 - r.y0 };
   });
 
   // 1. Collect every room edge per line, then split each line at all edge endpoints.
@@ -167,11 +195,13 @@ export function buildSceneGeometry(plan: FloorPlan): SceneGeometry {
       const enclosedLow = !!low && !OPEN_TYPES.has(low.type);
       const enclosedHigh = !!high && !OPEN_TYPES.has(high.type);
       const onBoundary = line.axis === "h" ? line.at < EPS || line.at > L - EPS : line.at < EPS || line.at > W - EPS;
+      // Upstairs, an open terrace edge with nothing beside it is a drop: give it a parapet.
+      const openEdge = levelIndex > 0 && (!low || !high);
       let piece: Omit<Piece, "from" | "to"> | null = null;
       if (enclosedLow || enclosedHigh) {
         const kind = enclosedLow && enclosedHigh ? "interior" : "exterior";
         piece = { kind, thickness: (kind === "interior" ? 0.5 : 0.75) * ft, height: wallHeight };
-      } else if (onBoundary) {
+      } else if (onBoundary || openEdge) {
         const streetGate = line.axis === "h" && line.at < EPS && (low?.type === "parking" || high?.type === "parking");
         if (!streetGate) piece = { kind: "boundary", thickness: 0.5 * ft, height: boundaryHeight };
       }
@@ -229,7 +259,7 @@ export function buildSceneGeometry(plan: FloorPlan): SceneGeometry {
     if (to - from < EPS || height < EPS) return;
     const mid = (from + to) / 2;
     const [x, z] = line.axis === "h" ? toWorld(mid, line.at) : toWorld(line.at, mid);
-    walls.push({ id, centerX: x, centerZ: z, baseY, length: to - from, angle: line.axis === "h" ? 0 : Math.PI / 2, thickness, height, kind });
+    walls.push({ id: tagPrefix + id, centerX: x, centerZ: z, baseY: elevation + baseY, length: to - from, angle: line.axis === "h" ? 0 : Math.PI / 2, thickness, height, kind });
   };
 
   for (const [key, run] of pieces) {
@@ -259,22 +289,24 @@ export function buildSceneGeometry(plan: FloorPlan): SceneGeometry {
         const base = line.axis === "h" ? 0 : Math.PI / 2;
         // Rotate from the wall direction toward the interior side by the swing angle.
         const swing = line.axis === "h" ? c.sign * DOOR_SWING : -c.sign * DOOR_SWING;
-        doors.push({ id: c.id, hingeX: hx, hingeZ: hz, angle: base + swing, width, height: c.top, thickness: 0.15 * ft });
+        doors.push({ id: c.id, baseY: elevation, hingeX: hx, hingeZ: hz, angle: base + swing, width, height: c.top, thickness: 0.15 * ft });
       } else {
         const mid = (c.from + c.to) / 2;
         const [x, z] = line.axis === "h" ? toWorld(mid, line.at) : toWorld(line.at, mid);
-        windows.push({ id: c.id, centerX: x, centerZ: z, baseY: c.bottom, angle: line.axis === "h" ? 0 : Math.PI / 2, width, height: c.top - c.bottom });
+        windows.push({ id: c.id, centerX: x, centerZ: z, baseY: elevation + c.bottom, angle: line.axis === "h" ? 0 : Math.PI / 2, width, height: c.top - c.bottom });
       }
     }
   }
 
-  return { walls, floors, openings, doors, windows, plotWidth: W, plotDepth: L, wallHeight };
+  return { walls, floors, openings, doors, windows };
 }
 
 export type CameraView = "perspective" | "isometric" | "top" | "front" | "side";
 
 export type CameraFraming = {
   distance: number;
+  /** Height the camera looks at: 0 for one floor, raised for taller buildings so they stay in frame. */
+  targetY: number;
   near: number;
   far: number;
   positions: Record<CameraView, [number, number, number]>;
@@ -290,12 +322,14 @@ export type CameraFraming = {
 export function computeCameraFraming(geometry: SceneGeometry, fovDeg = 45, margin = 0.85): CameraFraming {
   const maxWallHeight = geometry.walls.reduce((max, w) => Math.max(max, w.baseY + w.height), 10);
   const horizontalExtent = Math.hypot(geometry.plotWidth, geometry.plotDepth);
-  const verticalExtent = Math.max(horizontalExtent, maxWallHeight * 2);
+  const extraHeight = Math.max(0, maxWallHeight - geometry.wallHeight);
+  const verticalExtent = Math.max(Math.hypot(horizontalExtent, extraHeight), maxWallHeight * 2);
   const fovRad = (fovDeg * Math.PI) / 180;
   const distance = Math.max(12, ((verticalExtent / 2) / Math.tan(fovRad / 2)) * margin);
 
   return {
     distance,
+    targetY: extraHeight * 0.5,
     near: Math.max(0.05, distance * 0.01),
     far: distance * 10,
     positions: {

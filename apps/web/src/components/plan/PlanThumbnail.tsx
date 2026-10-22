@@ -15,8 +15,8 @@ const ROOM_FILL: Record<RoomType, string> = {
 };
 
 /** Read-only SVG of a floor plan's ground level: rooms, labels, doors and windows. Street is at the top (y = 0). */
-export function PlanThumbnail({ plan, title }: { plan: FloorPlan; title?: string }) {
-  const level = plan.levels[0];
+export function PlanThumbnail({ plan, title, dimensions = false, className = "plan-thumbnail", levelIndex = 0 }: { plan: FloorPlan; title?: string; dimensions?: boolean; className?: string; levelIndex?: number }) {
+  const level = plan.levels[levelIndex] ?? plan.levels[0];
   const { width: w, length: l } = plan.plot;
   const unit = Math.max(w, l) / 60;
   const pad = unit * 3.4;
@@ -25,7 +25,7 @@ export function PlanThumbnail({ plan, title }: { plan: FloorPlan; title?: string
 
   return (
     <svg
-      className="plan-thumbnail"
+      className={className}
       viewBox={`${-pad} ${-pad * 1.6} ${w + pad * 2} ${l + pad * 2.6}`}
       role="img"
       aria-label={title ?? "Floor plan preview"}
@@ -57,6 +57,29 @@ export function PlanThumbnail({ plan, title }: { plan: FloorPlan; title?: string
         );
       })}
       <rect x={0} y={0} width={w} height={l} fill="none" stroke="#1D1A40" strokeWidth={wall * 1.9} />
+      {dimensions && (
+        <g className="plan-dims" stroke="#6B6880" strokeWidth={wall * 0.35} fontSize={unit * 1.3}>
+          <line x1={0} y1={l + pad * 0.6} x2={w} y2={l + pad * 0.6} />
+          <line x1={0} y1={l + pad * 0.35} x2={0} y2={l + pad * 0.85} />
+          <line x1={w} y1={l + pad * 0.35} x2={w} y2={l + pad * 0.85} />
+          <text x={w / 2} y={l + pad * 0.6 - unit * 0.5} textAnchor="middle" stroke="none" fill="#4A4766">
+            {+w.toFixed(2)} {plan.units}
+          </text>
+          <line x1={w + pad * 0.6} y1={0} x2={w + pad * 0.6} y2={l} />
+          <line x1={w + pad * 0.35} y1={0} x2={w + pad * 0.85} y2={0} />
+          <line x1={w + pad * 0.35} y1={l} x2={w + pad * 0.85} y2={l} />
+          <text
+            x={w + pad * 0.6 - unit * 0.5}
+            y={l / 2}
+            textAnchor="middle"
+            stroke="none"
+            fill="#4A4766"
+            transform={`rotate(-90 ${w + pad * 0.6 - unit * 0.5} ${l / 2})`}
+          >
+            {+l.toFixed(2)} {plan.units}
+          </text>
+        </g>
+      )}
       {level.openings.map((opening) => {
         const host = walls.get(opening.wallId);
         if (!host) return null;

@@ -78,7 +78,7 @@ function GeneratedHouse({
         return (
           <mesh
             key={floor.id}
-            position={[floor.centerX, slab, floor.centerZ]}
+            position={[floor.centerX, floor.baseY + (floor.level > 0 && floor.type !== "other" ? slab * 4 : slab), floor.centerZ]}
             receiveShadow
             onPointerOver={pointer(floor.id)}
             onPointerOut={pointer(null)}
@@ -88,7 +88,7 @@ function GeneratedHouse({
               onSelectRoom(floor.id);
             }}
           >
-            <boxGeometry args={[Math.max(floor.width - 0.04, 0.01), slab * 2, Math.max(floor.depth - 0.04, 0.01)]} />
+            <boxGeometry args={[Math.max(floor.width - 0.04, 0.01), floor.level > 0 ? slab * 8 : slab * 2, Math.max(floor.depth - 0.04, 0.01)]} />
             <meshStandardMaterial
               color={floorColor(floor)}
               emissive={selected ? "#5146A5" : hot ? "#8A80D0" : "#000000"}
@@ -118,11 +118,12 @@ function GeneratedHouse({
       })}
 
       {geometry.doors.map((door) => {
-        const height = clip(0, door.height);
+        if (cutHeight !== null && door.baseY >= cutHeight) return null;
+        const height = clip(door.baseY, door.height);
         const cx = door.hingeX + Math.cos(door.angle) * (door.width / 2);
         const cz = door.hingeZ + Math.sin(door.angle) * (door.width / 2);
         return (
-          <mesh key={door.id} position={[cx, height / 2, cz]} rotation={[0, -door.angle, 0]} castShadow>
+          <mesh key={door.id} position={[cx, door.baseY + height / 2, cz]} rotation={[0, -door.angle, 0]} castShadow>
             <boxGeometry args={[door.width, height, door.thickness]} />
             <meshStandardMaterial color="#8B5E3C" roughness={0.6} />
           </mesh>
@@ -142,9 +143,9 @@ function GeneratedHouse({
 
       {showLabels &&
         geometry.floors
-          .filter((f) => f.type !== "hallway" && Math.min(f.width, f.depth) >= geometry.wallHeight * 0.35)
+          .filter((f) => f.level === geometry.levelCount - 1 && f.type !== "hallway" && Math.min(f.width, f.depth) >= geometry.wallHeight * 0.35)
           .map((floor) => (
-            <Html key={`label-${floor.id}`} position={[floor.centerX, slab * 3, floor.centerZ]} center zIndexRange={[20, 0]}>
+            <Html key={`label-${floor.id}`} position={[floor.centerX, floor.baseY + slab * 6, floor.centerZ]} center zIndexRange={[20, 0]}>
               <span className={`room-label-3d${floor.id === selectedRoomId ? " selected" : ""}`}>{floor.name}</span>
             </Html>
           ))}
@@ -168,19 +169,20 @@ function CameraRig({
 
   useEffect(() => {
     const [x, y, z] = framing.positions[view].map((v) => v * aspectBackoff) as [number, number, number];
+    const ty = view === "top" ? 0 : framing.targetY;
     camera.up.set(0, view === "top" ? 0 : 1, view === "top" ? -1 : 0);
-    camera.position.set(x, y, z);
+    camera.position.set(x, y + ty, z);
     if ("near" in camera && "far" in camera) {
       camera.near = framing.near;
       camera.far = framing.far;
       camera.updateProjectionMatrix();
     }
-    camera.lookAt(0, 0, 0);
-    controlsRef.current?.target.set(0, 0, 0);
+    camera.lookAt(0, ty, 0);
+    controlsRef.current?.target.set(0, ty, 0);
     controlsRef.current?.update();
     // Re-frame only when the view or framing changes, not on every plan edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, framing.distance, camera, resetToken, aspectBackoff]);
+  }, [view, framing.distance, framing.targetY, camera, resetToken, aspectBackoff]);
 
   return <OrbitControls ref={controlsRef} makeDefault enableDamping dampingFactor={0.08} maxPolarAngle={Math.PI / 2.05} />;
 }
@@ -199,15 +201,18 @@ type HouseSceneProps = {
   showGrid?: boolean;
   cutaway?: boolean;
   showLabels?: boolean;
+  /** Highest floor to show (0 = ground); floors above are hidden. Default: all floors. */
+  topLevel?: number;
   selectedRoomId?: string | null;
   onSelectRoom?: (id: string | null) => void;
 };
 
 export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function HouseScene(
-  { plan, view = "perspective", showGrid = true, cutaway = false, showLabels = true, selectedRoomId = null, onSelectRoom },
+  { plan, view = "perspective", showGrid = true, cutaway = false, showLabels = true, topLevel, selectedRoomId = null, onSelectRoom },
   ref
 ) {
-  const geometry = useMemo(() => buildSceneGeometry(plan), [plan]);
+  const geometry = useMemo(() => buildSceneGeometry(plan, topLevel), [plan, topLevel]);
+  const topElevation = geometry.floors.reduce((max, f) => Math.max(max, f.baseY), 0);
   const framing = useMemo(() => computeCameraFraming(geometry), [geometry]);
   const span = Math.max(geometry.plotWidth, geometry.plotDepth);
   const ft = plan.units === "m" ? 0.3048 : 1;
@@ -267,7 +272,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
       )}
       <GeneratedHouse
         geometry={geometry}
-        cutHeight={cutaway ? 4.5 * ft : null}
+        cutHeight={cutaway ? topElevation + 4.5 * ft : null}
         showLabels={showLabels}
         selectedRoomId={selectedRoomId}
         onSelectRoom={onSelectRoom}

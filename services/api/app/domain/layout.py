@@ -6,6 +6,10 @@ shared by preferred size, so rooms tile the plot exactly — inside the boundary
 and non-overlapping by construction. Candidates are then checked by the
 geometry engine and hard constraints, and ranked with a soft score.
 
+Multi-floor houses reuse the ground floor's room grid on every upper floor and
+relabel it (bedrooms, baths over baths, family lounge, terraces), so walls,
+the staircase and wet areas stack. Open ground (yards, garden) stays open to sky.
+
 Plan coordinates: x across the plot width, y from the street front (y = 0)
 to the rear. Generated plans are conceptual, not construction drawings.
 """
@@ -38,6 +42,9 @@ CAR_LENGTH_FT = 15.0
 CORRIDOR_FT = 3.5
 DOOR_FT, MAIN_DOOR_FT, WINDOW_FT, BATH_WINDOW_FT, LIVING_WINDOW_FT = 3.0, 3.5, 4.0, 2.0, 5.0
 HABITABLE = {"bedroom", "living_room", "kitchen", "dining_room", "study"}
+FLOOR_HEIGHT_FT = 10.0
+LEVEL_IDS = ("ground", "first", "second", "third")
+FLOOR_NAMES = ("Ground floor", "First floor", "Second floor", "Third floor")
 
 
 class PlotTooSmall(ValueError):
@@ -424,6 +431,21 @@ def _r(v: float) -> float:
 
 
 def _assemble_design(c: Candidate, units: str, w: float, l: float, scale: float) -> tuple[dict, list[str], set[str]]:
+    level, notes, has_door = _assemble_level(c, w, l, scale)
+    design = {
+        "schemaVersion": 1, "projectId": "", "units": units,
+        "plot": {"width": w, "length": l, "floors": 1, "shape": "rectangle"},
+        "levels": [level],
+        "metadata": {"version": 1, "status": "generated"},
+    }
+    return design, notes, has_door
+
+
+def _assemble_level(c: Candidate, w: float, l: float, scale: float, index: int = 0,
+                    voids: frozenset[str] = frozenset()) -> tuple[dict, list[str], set[str]]:
+    """Rooms, walls, doors and windows for one floor. `voids` are open-to-sky areas above the ground
+    floor: they count as outdoors for windows but get no room, walls or doors."""
+    prefix = "" if index == 0 else f"{LEVEL_IDS[index]}-"
     rooms: list[dict] = []
     walls: list[dict] = []
     openings: list[dict] = []
@@ -436,7 +458,7 @@ def _assemble_design(c: Candidate, units: str, w: float, l: float, scale: float)
     def wall_for(seg: tuple, kind: str) -> str:
         key = ((_r(seg[0][0]), _r(seg[0][1])), (_r(seg[1][0]), _r(seg[1][1])))
         if key not in wall_ids:
-            wid = f"wall-{len(wall_ids) + 1}"
+            wid = f"{prefix}wall-{len(wall_ids) + 1}"
             wall_ids[key] = wid
             walls.append({"id": wid, "start": list(key[0]), "end": list(key[1]),
                           "thickness": _r((0.75 if kind == "exterior" else 0.5) * scale),
@@ -448,33 +470,38 @@ def _assemble_design(c: Candidate, units: str, w: float, l: float, scale: float)
         width = min(width, length - 1.0 * scale)
         margin = width / 2 + 0.5 * scale
         offset = min(max(length * at, margin), length - margin)
-        openings.append({"id": f"{kind}-{len(openings) + 1}", "wallId": wall_for(seg, wall_kind), "kind": kind,
+        openings.append({"id": f"{prefix}{kind}-{len(openings) + 1}", "wallId": wall_for(seg, wall_kind), "kind": kind,
                          "offset": _r(offset), "width": _r(width)})
 
     for key, (x0, y0, x1, y1) in c.rects.items():
+        if key in voids:
+            continue
         leaf = c.leaves[key]
-        rooms.append({"id": f"room-{key}", "type": leaf.room_type, "name": leaf.name,
+        rooms.append({"id": f"{prefix}room-{key}", "type": leaf.room_type, "name": leaf.name,
                       "polygon": [[_r(x0), _r(y0)], [_r(x1), _r(y0)], [_r(x1), _r(y1)], [_r(x0), _r(y1)]]})
 
     has_door: set[str] = set()
-    entry_room = "living" if "living" in c.rects else "hall"
-    entry_edges = sorted(_exterior_edges(c.rects[entry_room], w, l),
-                         key=lambda e: (e[0] != "front", -_seg_len((e[1], e[2]))))
-    entry_side = entry_edges[0][0] if entry_edges else None
-    if entry_edges:
-        add_opening("door", (entry_edges[0][1], entry_edges[0][2]), MAIN_DOOR_FT * scale, "exterior", at=0.3)
-        has_door.add(entry_room)
-    else:
-        notes.append("No exterior wall is available for the main entrance.")
+    entry_room, entry_side = None, None
+    if index == 0:  # the main entrance is on the ground floor only
+        entry_room = "living" if "living" in c.rects else "hall"
+        entry_edges = sorted(_exterior_edges(c.rects[entry_room], w, l),
+                             key=lambda e: (e[0] != "front", -_seg_len((e[1], e[2]))))
+        entry_side = entry_edges[0][0] if entry_edges else None
+        if entry_edges:
+            add_opening("door", (entry_edges[0][1], entry_edges[0][2]), MAIN_DOOR_FT * scale, "exterior", at=0.3)
+            has_door.add(entry_room)
+        else:
+            notes.append("No exterior wall is available for the main entrance.")
 
     door_min = DOOR_FT * scale + 1.0 * scale
     for key in c.rects:
         rtype = types[key]
-        if rtype == "living_room":
+        if rtype == "living_room" or key in voids:
             continue
         prefs = DOOR_TARGETS.get(rtype, ("hallway",))
         targets = [bed_of[key]] if key in bed_of else []
-        targets += sorted((k for k in c.rects if k != key and types[k] in prefs and k != bath_of.get(key)),
+        targets += sorted((k for k in c.rects if k != key and types[k] in prefs and k != bath_of.get(key)
+                           and k not in voids),
                           key=lambda k: prefs.index(types[k]))
         for other in targets:
             seg = _shared_edge(c.rects[key], c.rects[other])
@@ -500,14 +527,141 @@ def _assemble_design(c: Candidate, units: str, w: float, l: float, scale: float)
         at = 0.72 if key == entry_room and side == entry_side else 0.5
         add_opening("window", (a, b), size * scale, "exterior", at=at)
 
-    design = {
-        "schemaVersion": 1, "projectId": "", "units": units,
-        "plot": {"width": w, "length": l, "floors": 1, "shape": "rectangle"},
-        "levels": [{"id": "ground", "elevation": 0, "wallHeight": _r(10 * scale),
-                    "rooms": rooms, "walls": walls, "openings": openings, "furniture": []}],
-        "metadata": {"version": 1, "status": "generated"},
-    }
-    return design, notes, has_door
+    level = {"id": LEVEL_IDS[index], "elevation": _r(index * FLOOR_HEIGHT_FT * scale),
+             "wallHeight": _r(FLOOR_HEIGHT_FT * scale), "rooms": rooms, "walls": walls,
+             "openings": openings, "furniture": []}
+    return level, notes, has_door
+
+
+# ── Upper floors ─────────────────────────────────────────────────────────────
+
+def split_floors(counts: dict[str, int], floors: int,
+                 ground_beds: int | None = None) -> tuple[list[dict[str, int]], list[str]]:
+    """Room counts per floor: shared rooms on the ground, bedrooms spread with the most upstairs,
+    a bath on every floor that has bedrooms (and always on the ground), stairs on every floor."""
+    if floors <= 1:
+        return [dict(counts)], []
+    notes: list[str] = []
+    uppers = floors - 1
+    n_bed = counts.get("bedroom", 0)
+    ground_beds = n_bed // floors if ground_beds is None else min(ground_beds, n_bed)
+    rest = n_bed - ground_beds
+    beds = [ground_beds] + [rest // uppers + (1 if i < rest % uppers else 0) for i in range(uppers)]
+
+    baths = [1] + [1 if b else 0 for b in beds[1:]]
+    n_bath = counts.get("bathroom", 0)
+    if n_bath < sum(baths):
+        notes.append(f"Added {sum(baths) - n_bath} bathroom(s) so every floor with bedrooms has one.")
+    for _ in range(max(n_bath - sum(baths), 0)):
+        i = max(range(floors), key=lambda f: (beds[f] - baths[f], f))  # floor with most bedrooms per bath
+        baths[i] += 1
+
+    per_floor: list[dict[str, int]] = []
+    for i in range(floors):
+        floor = {t: n for t, n in counts.items() if t not in ("bedroom", "bathroom", "study")} if i == 0 else {}
+        floor["staircase"] = 1
+        if beds[i]:
+            floor["bedroom"] = beds[i]
+        if baths[i]:
+            floor["bathroom"] = baths[i]
+        per_floor.append(floor)
+    if counts.get("study"):
+        per_floor[1]["study"] = counts["study"]
+    return per_floor, notes
+
+
+def _stack_floor(ground: Candidate, want: dict[str, int], scale: float, step: float,
+                 bed_start: int) -> tuple["Candidate | None", frozenset[str], str]:
+    """Relabels the ground floor's room grid for an upper floor so walls and stairs line up."""
+    tol = step / 2 + 1e-6
+    door_min = DOOR_FT * scale + 1.0 * scale
+    leaves: dict[str, Leaf] = {}
+    voids, dry, wet = set(), [], []
+
+    def size(k: str) -> tuple[float, float]:
+        x0, y0, x1, y1 = ground.rects[k]
+        return x1 - x0, y1 - y0
+
+    def area(k: str) -> float:
+        return size(k)[0] * size(k)[1]
+
+    def fits(k: str, rtype: str) -> bool:
+        short, long_ = sorted(size(k))
+        return short + tol >= PROGRAM[rtype][2] * scale and long_ / max(short, 1e-6) <= PROGRAM[rtype][3]
+
+    def put(k: str, rtype: str, name: str) -> None:
+        w_, d_ = size(k)
+        leaves[k] = Leaf(k, rtype, name, w_, d_, PROGRAM[rtype][2] * scale)
+
+    for key in ground.rects:
+        g = ground.leaves[key]
+        if g.room_type == "other":
+            voids.add(key)
+            leaves[key] = Leaf(key, "other", "Open to sky", *size(key), 0.0)
+        elif g.room_type in ("staircase", "hallway"):
+            leaves[key] = Leaf(key, g.room_type, g.name, g.pref_w, g.pref_d, g.min_side, g.fixed)
+        else:
+            (wet if g.room_type == "bathroom" else dry).append(key)
+
+    n_bed, n_bath, n_study = want.get("bedroom", 0), want.get("bathroom", 0), want.get("study", 0)
+    by_area = sorted(dry, key=area, reverse=True)
+    beds = [k for k in by_area if fits(k, "bedroom")][:n_bed]
+    if len(beds) < n_bed:
+        return None, frozenset(voids), f"only {len(beds)} of {n_bed} bedrooms fit above this ground floor"
+    rest = [k for k in by_area if k not in beds]
+
+    hubs = beds + [k for k in ground.rects if ground.leaves[k].room_type == "hallway"]
+
+    def reachable(k: str) -> bool:
+        return any((seg := _shared_edge(ground.rects[k], ground.rects[h])) and _seg_len(seg) >= door_min for h in hubs)
+
+    # Baths over baths keep plumbing in one stack, but only where a bedroom or passage can reach them.
+    baths = [k for k in wet if reachable(k)][:n_bath]
+    spare_wet = [k for k in wet if k not in baths]
+    if len(baths) < n_bath:
+        extra = sorted((k for k in rest if fits(k, "bathroom") and reachable(k)), key=area)[:n_bath - len(baths)]
+        if len(baths) + len(extra) < n_bath:
+            return None, frozenset(voids), f"only {len(baths) + len(extra)} of {n_bath} bathrooms fit"
+        baths += extra
+        rest = [k for k in rest if k not in extra]
+
+    studies = [k for k in rest if fits(k, "study")][:n_study]
+    if len(studies) < n_study:
+        return None, frozenset(voids), "no room is large enough for the study"
+    rest = [k for k in rest if k not in studies]
+    lounge = next((k for k in rest if ground.leaves[k].room_type == "living_room" and fits(k, "living_room")), None)
+
+    for i, k in enumerate(beds):
+        put(k, "bedroom", f"Bedroom {bed_start + i}")
+    for k in studies:
+        put(k, "study", "Study")
+    if lounge:
+        put(lounge, "living_room", "Family Lounge")
+        rest.remove(lounge)
+    for k in rest + spare_wet:
+        small = area(k) < 60 * scale * scale or ground.leaves[k].room_type in ("utility", "bathroom")
+        if small and fits(k, "utility"):
+            put(k, "utility", "Store")
+        else:
+            put(k, "other", "Terrace")
+
+    pairs: list[tuple[str, str]] = []
+    for bed in beds:
+        for bath in baths:
+            seg = _shared_edge(ground.rects[bed], ground.rects[bath])
+            if bath not in (b for _, b in pairs) and seg and _seg_len(seg) >= door_min:
+                pairs.append((bed, bath))
+                break
+    paired = {b for _, b in pairs}
+    commons = [b for b in baths if b not in paired]
+    for i, (_, bath) in enumerate(pairs):
+        put(bath, "bathroom", "Attached Bath" if len(pairs) == 1 else f"Bath {bed_start + i}")
+    for i, bath in enumerate(commons):
+        put(bath, "bathroom", "Common Bath" if len(commons) == 1 else f"Common Bath {i + 1}")
+
+    upper = Candidate(ground.template, ground.mirrored, ground.label, ground.summary,
+                      ground.rects, leaves, pairs, ground.padded)
+    return upper, frozenset(voids), ""
 
 
 def _hard_failures(c: Candidate, required: dict[str, int], scale: float, step: float) -> list[str]:
@@ -595,10 +749,36 @@ def _score(c: Candidate, w: float, l: float, has_door: set[str]) -> tuple[int, d
 
 def generate_candidates(requirements: RoomRequirements, plot_width: float, plot_length: float,
                         units: str = "ft", seed: int = 0, limit: int = 3) -> dict[str, Any]:
+    floors = min(max(getattr(requirements, "floors", 1) or 1, 1), len(LEVEL_IDS))
+    n_bed = requirements.counts.get("bedroom", 0)
+    if floors == 1 or n_bed // floors == 0:
+        return _generate(requirements, plot_width, plot_length, units, seed, limit)
+    # When the ground floor is too tight, move its bedrooms upstairs one at a time and try again.
+    result: dict[str, Any] | None = None
+    for ground_beds in range(n_bed // floors, -1, -1):
+        try:
+            result = _generate(requirements, plot_width, plot_length, units, seed, limit, ground_beds)
+        except PlotTooSmall:
+            if ground_beds == 0:
+                raise
+            continue
+        if result["candidates"]:
+            if ground_beds < n_bed // floors:
+                result["notes"].append(f"Moved bedrooms upstairs to fit the ground floor ({ground_beds} left on the ground).")
+            return result
+    assert result is not None
+    return result
+
+
+def _generate(requirements: RoomRequirements, plot_width: float, plot_length: float, units: str, seed: int,
+              limit: int, ground_beds: int | None = None) -> dict[str, Any]:
     scale = 1.0 if units == "ft" else M_PER_FT
     step = 0.5 if units == "ft" else 0.1
     w, l = float(plot_width), float(plot_length)
-    counts = {t: n for t, n in requirements.counts.items() if t != "hallway" and n > 0}
+    all_counts = {t: n for t, n in requirements.counts.items() if t != "hallway" and n > 0}
+    floors = min(max(getattr(requirements, "floors", 1) or 1, 1), len(LEVEL_IDS))
+    per_floor, split_notes = split_floors(all_counts, floors, ground_beds)
+    counts = per_floor[0]
 
     floor_min = sum(PROGRAM[t][2] ** 2 * n for t, n in counts.items()) * scale * scale
     if w * l < floor_min * 1.3 or min(w, l) < 15 * scale:
@@ -631,20 +811,54 @@ def generate_candidates(requirements: RoomRequirements, plot_width: float, plot_
         seen.add(signature)
         failures = _hard_failures(c, counts, scale, step)
         design, notes, has_door = _assemble_design(c, units, w, l, scale)
+        upper_scores: list[int] = []
+        bed_next = counts.get("bedroom", 0) + 1
+        for fi in range(1, floors):
+            if failures:
+                break
+            upper, voids, why = _stack_floor(c, per_floor[fi], scale, step, bed_next)
+            if upper is None:
+                failures.append(f"{FLOOR_NAMES[fi]}: {why}.")
+                break
+            failures += [f"{FLOOR_NAMES[fi]}: {f}" for f in _hard_failures(upper, per_floor[fi], scale, step)]
+            level, up_notes, up_door = _assemble_level(upper, w, l, scale, fi, voids)
+            # A store or terrace upstairs that no door reaches has no use: leave it open to sky instead.
+            unreachable = {k for k, leaf in upper.leaves.items()
+                           if leaf.room_type in ("utility", "other") and k not in voids and k not in up_door}
+            if unreachable:
+                voids = voids | unreachable
+                level, up_notes, up_door = _assemble_level(upper, w, l, scale, fi, voids)
+            for key, leaf in upper.leaves.items():
+                if leaf.room_type in ("bedroom", "bathroom", "study", "staircase") and key not in up_door:
+                    failures.append(f"{FLOOR_NAMES[fi]}: {leaf.name} has no door to a passage or lounge.")
+            notes += [f"{FLOOR_NAMES[fi]}: {n}" for n in up_notes]
+            design["levels"].append(level)
+            upper_scores.append(_score(upper, w, l, up_door)[0])
+            bed_next += per_floor[fi].get("bedroom", 0)
+        design["plot"]["floors"] = floors
         failures += [i["message"] for i in validate_floor_plan(design) + spatial_issues(design)]
         if failures:
             rejected.append({"label": c.label, "reasons": failures[:3]})
             continue
         total, parts, highlights = _score(c, w, l, has_door)
-        rooms = design["levels"][0]["rooms"]
-        built = sum((r["polygon"][2][0] - r["polygon"][0][0]) * (r["polygon"][2][1] - r["polygon"][0][1])
-                    for r in rooms if r["type"] != "other")
+        if upper_scores:
+            # Ground floor carries entrance, parking and daylight; upper floors still count for 40%.
+            total = round(total * 0.6 + sum(upper_scores) / len(upper_scores) * 0.4)
+            highlights = [f"Walls, staircase and bathrooms line up across all {floors} floors.", *highlights]
+        built, room_count = 0.0, 0
+        for level in design["levels"]:
+            for r in level["rooms"]:
+                if r["type"] == "other":
+                    continue
+                built += (r["polygon"][2][0] - r["polygon"][0][0]) * (r["polygon"][2][1] - r["polygon"][0][1])
+                if r["type"] not in ("hallway", "staircase") or level["id"] == "ground":
+                    room_count += r["type"] != "hallway"
         accepted.append({
             "id": f"{c.template}{'-yard' if c.padded else ''}{'-mirrored' if c.mirrored else ''}-{seed}",
             "template": c.template, "label": c.label, "summary": c.summary, "score": total, "scores": parts,
             "highlights": highlights, "warnings": notes,
-            "stats": {"roomCount": len([r for r in rooms if r["type"] not in ("hallway", "other")]),
-                      "builtUpArea": round(built, 1), "plotArea": round(w * l, 1)},
+            "stats": {"roomCount": room_count, "builtUpArea": round(built, 1), "plotArea": round(w * l, 1),
+                      "floors": floors},
             "design": design,
         })
 
@@ -658,4 +872,6 @@ def generate_candidates(requirements: RoomRequirements, plot_width: float, plot_
             break
         if cand not in picked:
             picked.append(cand)
-    return {"candidates": sorted(picked[:limit], key=lambda a: -a["score"]), "rejected": rejected}
+    return {"candidates": sorted(picked[:limit], key=lambda a: -a["score"]), "rejected": rejected,
+            "floors": [{"name": FLOOR_NAMES[i], "counts": f} for i, f in enumerate(per_floor)],
+            "notes": split_notes}

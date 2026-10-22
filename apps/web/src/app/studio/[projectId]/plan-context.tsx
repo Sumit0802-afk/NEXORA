@@ -8,6 +8,7 @@ import type { FloorPlan } from "@houseplan/design-schema";
 type PlanContextValue = {
   projectId: string;
   isDemo: boolean;
+  projectName: string;
   plan: FloorPlan | null;
   loadError: string | null;
   saving: boolean;
@@ -34,6 +35,7 @@ export function PlanProvider({ projectId, children }: { projectId: string; child
   const isDemo = projectId === "demo";
   const [history, setHistory] = useState<FloorPlan[] | null>(isDemo ? [demoPlan] : null);
   const [historyIndex, setHistoryIndex] = useState(0);
+  const [projectName, setProjectName] = useState(isDemo ? "Demo plan" : "Untitled design");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(isDemo ? "Demo plan" : "Loading…");
@@ -46,6 +48,7 @@ export function PlanProvider({ projectId, children }: { projectId: string; child
         if (cancelled) return;
         setHistory([project.design]);
         setHistoryIndex(0);
+        setProjectName(project.name);
         setStatus(`Loaded "${project.name}"`);
       })
       .catch((err) => {
@@ -112,8 +115,8 @@ export function PlanProvider({ projectId, children }: { projectId: string; child
   }, [plan, isDemo]);
 
   const value = useMemo<PlanContextValue>(
-    () => ({ projectId, isDemo, plan, loadError, saving, status, setStatus, canUndo, canRedo, undo, redo, pushPlan, save }),
-    [projectId, isDemo, plan, loadError, saving, status, canUndo, canRedo, undo, redo, pushPlan, save]
+    () => ({ projectId, isDemo, projectName, plan, loadError, saving, status, setStatus, canUndo, canRedo, undo, redo, pushPlan, save }),
+    [projectId, isDemo, projectName, plan, loadError, saving, status, canUndo, canRedo, undo, redo, pushPlan, save]
   );
 
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>;
