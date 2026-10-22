@@ -1,0 +1,11 @@
+{
+  "name": "nexora-smart-studio",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/web", "packages/design-schema"],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "lint": "npm --workspace apps/web run lint",
+    "typecheck": "npm --workspace apps/web run typecheck"
+  }
+}

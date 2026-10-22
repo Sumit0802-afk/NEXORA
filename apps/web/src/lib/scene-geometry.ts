@@ -1,0 +1,311 @@
+import type { FloorPlan, RoomType, Wall } from "@houseplan/design-schema";
+
+/** A box-shaped wall piece. Walls are split around doors/windows into solid pieces, lintels and sills. */
+export type WallSegment = {
+  id: string;
+  centerX: number;
+  centerZ: number;
+  baseY: number;
+  length: number;
+  angle: number;
+  thickness: number;
+  height: number;
+  kind: "exterior" | "interior" | "boundary";
+};
+
+export type RoomFloor = {
+  id: string;
+  name: string;
+  type: RoomType;
+  centerX: number;
+  centerZ: number;
+  width: number;
+  depth: number;
+};
+
+export type OpeningMarker = {
+  id: string;
+  kind: "door" | "window";
+  centerX: number;
+  centerZ: number;
+  angle: number;
+  width: number;
+};
+
+/** A door leaf, hinged at (hingeX, hingeZ) and drawn swung open into the plot. */
+export type DoorLeaf = {
+  id: string;
+  hingeX: number;
+  hingeZ: number;
+  angle: number;
+  width: number;
+  height: number;
+  thickness: number;
+};
+
+export type WindowPane = {
+  id: string;
+  centerX: number;
+  centerZ: number;
+  baseY: number;
+  angle: number;
+  width: number;
+  height: number;
+};
+
+export type SceneGeometry = {
+  walls: WallSegment[];
+  floors: RoomFloor[];
+  openings: OpeningMarker[];
+  doors: DoorLeaf[];
+  windows: WindowPane[];
+  plotWidth: number;
+  plotDepth: number;
+  wallHeight: number;
+};
+
+const EPS = 0.01;
+/** Rooms open to the sky or street: no full-height walls between them, only a low boundary wall at the plot edge. */
+const OPEN_TYPES: ReadonlySet<RoomType> = new Set<RoomType>(["other", "parking"]);
+const DOOR_SWING = (65 * Math.PI) / 180;
+
+type Rect = { id: string; type: RoomType; x0: number; y0: number; x1: number; y1: number };
+type Line = { axis: "h" | "v"; at: number };
+type Piece = { from: number; to: number; kind: WallSegment["kind"]; thickness: number; height: number };
+
+const round = (n: number) => Math.round(n * 1000) / 1000;
+const lineKey = (l: Line) => `${l.axis}@${round(l.at)}`;
+
+function boundsOf(polygon: [number, number][]) {
+  const xs = polygon.map((p) => p[0]);
+  const ys = polygon.map((p) => p[1]);
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+}
+
+/** Room on the low (-) or high (+) side of a line over the interval [a, b], if any. */
+function roomOn(rects: Rect[], line: Line, a: number, b: number, side: "low" | "high"): Rect | undefined {
+  const mid = (a + b) / 2;
+  return rects.find((r) => {
+    if (line.axis === "h") {
+      const edge = side === "low" ? r.y1 : r.y0;
+      return Math.abs(edge - line.at) < EPS && r.x0 - EPS <= mid && mid <= r.x1 + EPS;
+    }
+    const edge = side === "low" ? r.x1 : r.x0;
+    return Math.abs(edge - line.at) < EPS && r.y0 - EPS <= mid && mid <= r.y1 + EPS;
+  });
+}
+
+function explicitWallFor(walls: Wall[], line: Line, a: number, b: number): Wall | undefined {
+  const mid = (a + b) / 2;
+  return walls.find((w) => {
+    const horizontal = Math.abs(w.start[1] - w.end[1]) < EPS;
+    const vertical = Math.abs(w.start[0] - w.end[0]) < EPS;
+    if (line.axis === "h" && horizontal && Math.abs(w.start[1] - line.at) < EPS) {
+      return Math.min(w.start[0], w.end[0]) - EPS <= mid && mid <= Math.max(w.start[0], w.end[0]) + EPS;
+    }
+    if (line.axis === "v" && vertical && Math.abs(w.start[0] - line.at) < EPS) {
+      return Math.min(w.start[1], w.end[1]) - EPS <= mid && mid <= Math.max(w.start[1], w.end[1]) + EPS;
+    }
+    return false;
+  });
+}
+
+/**
+ * Builds Three.js-ready geometry (centered at the plot's center, plan Y -> world Z) from a canonical
+ * floor plan. Room edges on the same line are merged into one wall network (no duplicate walls at
+ * T-junctions), and doors/windows are cut out of the walls they sit on.
+ */
+export function buildSceneGeometry(plan: FloorPlan): SceneGeometry {
+  const level = plan.levels[0];
+  const rooms = level?.rooms ?? [];
+  const explicitWalls = level?.walls ?? [];
+  const ft = plan.units === "m" ? 0.3048 : 1;
+  const wallHeight = level?.wallHeight || 10 * ft;
+  const W = plan.plot.width;
+  const L = plan.plot.length;
+  const cx = W / 2;
+  const cz = L / 2;
+  const toWorld = (x: number, y: number): [number, number] => [x - cx, y - cz];
+
+  const rects: Rect[] = rooms.map((room) => ({ id: room.id, type: room.type, ...boundsOf(room.polygon as [number, number][]) }));
+
+  const floors: RoomFloor[] = rects.map((r) => {
+    const room = rooms.find((x) => x.id === r.id)!;
+    const [fx, fz] = toWorld((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2);
+    return { id: r.id, name: room.name, type: r.type, centerX: fx, centerZ: fz, width: r.x1 - r.x0, depth: r.y1 - r.y0 };
+  });
+
+  // 1. Collect every room edge per line, then split each line at all edge endpoints.
+  const lines = new Map<string, { line: Line; cuts: Set<number> }>();
+  const addEdge = (line: Line, a: number, b: number) => {
+    const key = lineKey(line);
+    const entry = lines.get(key) ?? { line, cuts: new Set<number>() };
+    entry.cuts.add(round(a));
+    entry.cuts.add(round(b));
+    lines.set(key, entry);
+  };
+  for (const r of rects) {
+    addEdge({ axis: "h", at: r.y0 }, r.x0, r.x1);
+    addEdge({ axis: "h", at: r.y1 }, r.x0, r.x1);
+    addEdge({ axis: "v", at: r.x0 }, r.y0, r.y1);
+    addEdge({ axis: "v", at: r.x1 }, r.y0, r.y1);
+  }
+
+  // 2. Classify each elementary interval by what lies on either side, and merge equal neighbours.
+  const pieces = new Map<string, Piece[]>();
+  const boundaryHeight = Math.min(3.5 * ft, wallHeight);
+  for (const [key, { line, cuts }] of lines) {
+    const sorted = [...cuts].sort((p, q) => p - q);
+    const run: Piece[] = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i];
+      const b = sorted[i + 1];
+      if (b - a < EPS) continue;
+      const low = roomOn(rects, line, a, b, "low");
+      const high = roomOn(rects, line, a, b, "high");
+      if (!low && !high) continue;
+      const enclosedLow = !!low && !OPEN_TYPES.has(low.type);
+      const enclosedHigh = !!high && !OPEN_TYPES.has(high.type);
+      const onBoundary = line.axis === "h" ? line.at < EPS || line.at > L - EPS : line.at < EPS || line.at > W - EPS;
+      let piece: Omit<Piece, "from" | "to"> | null = null;
+      if (enclosedLow || enclosedHigh) {
+        const kind = enclosedLow && enclosedHigh ? "interior" : "exterior";
+        piece = { kind, thickness: (kind === "interior" ? 0.5 : 0.75) * ft, height: wallHeight };
+      } else if (onBoundary) {
+        const streetGate = line.axis === "h" && line.at < EPS && (low?.type === "parking" || high?.type === "parking");
+        if (!streetGate) piece = { kind: "boundary", thickness: 0.5 * ft, height: boundaryHeight };
+      }
+      if (!piece) continue;
+      const explicit = piece.kind !== "boundary" ? explicitWallFor(explicitWalls, line, a, b) : undefined;
+      if (explicit) piece = { ...piece, thickness: explicit.thickness, height: explicit.height };
+      const prev = run[run.length - 1];
+      if (prev && Math.abs(prev.to - a) < EPS && prev.kind === piece.kind && prev.thickness === piece.thickness && prev.height === piece.height) {
+        prev.to = b;
+      } else {
+        run.push({ from: a, to: b, ...piece });
+      }
+    }
+    if (run.length) pieces.set(key, run);
+  }
+
+  // 3. Place openings on their lines and cut the wall pieces around them.
+  type Cut = { id: string; kind: "door" | "window"; from: number; to: number; bottom: number; top: number; sign: number };
+  const cutsByLine = new Map<string, Cut[]>();
+  const openings: OpeningMarker[] = [];
+  const doors: DoorLeaf[] = [];
+  const windows: WindowPane[] = [];
+  for (const opening of level?.openings ?? []) {
+    const host = explicitWalls.find((w) => w.id === opening.wallId);
+    if (!host) continue;
+    const dx = host.end[0] - host.start[0];
+    const dy = host.end[1] - host.start[1];
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const px = host.start[0] + ux * opening.offset;
+    const py = host.start[1] + uy * opening.offset;
+    const [wx, wz] = toWorld(px, py);
+    openings.push({ id: opening.id, kind: opening.kind, centerX: wx, centerZ: wz, angle: Math.atan2(uy, ux), width: opening.width });
+
+    const horizontal = Math.abs(dy) < EPS;
+    const vertical = Math.abs(dx) < EPS;
+    if (!horizontal && !vertical) continue; // diagonal walls keep the marker only
+    const line: Line = horizontal ? { axis: "h", at: py } : { axis: "v", at: px };
+    const along = horizontal ? px : py;
+    const half = opening.width / 2;
+    const isDoor = opening.kind === "door";
+    const bottom = isDoor ? 0 : opening.sillHeight ?? 3 * ft;
+    const top = Math.min(isDoor ? opening.height ?? 7 * ft : bottom + (opening.height ?? 4 * ft), wallHeight - 0.25 * ft);
+    // Swing/face toward the plot's interior, matching the 2D plan.
+    const toCenter = horizontal ? cz - py : cx - px;
+    const sign = toCenter >= 0 ? 1 : -1;
+    const list = cutsByLine.get(lineKey(line)) ?? [];
+    list.push({ id: opening.id, kind: opening.kind, from: along - half, to: along + half, bottom, top, sign });
+    cutsByLine.set(lineKey(line), list);
+  }
+
+  const walls: WallSegment[] = [];
+  const pushBox = (line: Line, from: number, to: number, baseY: number, height: number, thickness: number, kind: WallSegment["kind"], id: string) => {
+    if (to - from < EPS || height < EPS) return;
+    const mid = (from + to) / 2;
+    const [x, z] = line.axis === "h" ? toWorld(mid, line.at) : toWorld(line.at, mid);
+    walls.push({ id, centerX: x, centerZ: z, baseY, length: to - from, angle: line.axis === "h" ? 0 : Math.PI / 2, thickness, height, kind });
+  };
+
+  for (const [key, run] of pieces) {
+    const line = lines.get(key)!.line;
+    const cuts = (cutsByLine.get(key) ?? []).sort((p, q) => p.from - q.from);
+    run.forEach((piece, pi) => {
+      let cursor = piece.from;
+      const inPiece = cuts.filter((c) => c.to > piece.from + EPS && c.from < piece.to - EPS);
+      inPiece.forEach((c, ci) => {
+        const from = Math.max(c.from, piece.from);
+        const to = Math.min(c.to, piece.to);
+        const tag = `${key}-${pi}-${ci}`;
+        pushBox(line, cursor, from, 0, piece.height, piece.thickness, piece.kind, `wall-${tag}`);
+        if (c.bottom > EPS) pushBox(line, from, to, 0, Math.min(c.bottom, piece.height), piece.thickness, piece.kind, `sill-${tag}`);
+        if (c.top < piece.height) pushBox(line, from, to, c.top, piece.height - c.top, piece.thickness, piece.kind, `lintel-${tag}`);
+        cursor = Math.max(cursor, to);
+      });
+      pushBox(line, cursor, piece.to, 0, piece.height, piece.thickness, piece.kind, `wall-${key}-${pi}-end`);
+    });
+
+    for (const c of cuts) {
+      const hosted = run.some((p) => c.to > p.from + EPS && c.from < p.to - EPS);
+      if (!hosted) continue;
+      const width = c.to - c.from;
+      if (c.kind === "door") {
+        const [hx, hz] = line.axis === "h" ? toWorld(c.from, line.at) : toWorld(line.at, c.from);
+        const base = line.axis === "h" ? 0 : Math.PI / 2;
+        // Rotate from the wall direction toward the interior side by the swing angle.
+        const swing = line.axis === "h" ? c.sign * DOOR_SWING : -c.sign * DOOR_SWING;
+        doors.push({ id: c.id, hingeX: hx, hingeZ: hz, angle: base + swing, width, height: c.top, thickness: 0.15 * ft });
+      } else {
+        const mid = (c.from + c.to) / 2;
+        const [x, z] = line.axis === "h" ? toWorld(mid, line.at) : toWorld(line.at, mid);
+        windows.push({ id: c.id, centerX: x, centerZ: z, baseY: c.bottom, angle: line.axis === "h" ? 0 : Math.PI / 2, width, height: c.top - c.bottom });
+      }
+    }
+  }
+
+  return { walls, floors, openings, doors, windows, plotWidth: W, plotDepth: L, wallHeight };
+}
+
+export type CameraView = "perspective" | "isometric" | "top" | "front" | "side";
+
+export type CameraFraming = {
+  distance: number;
+  near: number;
+  far: number;
+  positions: Record<CameraView, [number, number, number]>;
+};
+
+/**
+ * Frames a camera so the whole plot (diagonal, plus wall height) fits in view
+ * for the given vertical FOV, with a margin — rather than a fixed/eyeballed
+ * distance that clips or shrinks the model as the plot size changes. Returns
+ * a position for every camera preset so "Fit to view" is just re-applying
+ * the same deterministic framing for the current preset.
+ */
+export function computeCameraFraming(geometry: SceneGeometry, fovDeg = 45, margin = 0.85): CameraFraming {
+  const maxWallHeight = geometry.walls.reduce((max, w) => Math.max(max, w.baseY + w.height), 10);
+  const horizontalExtent = Math.hypot(geometry.plotWidth, geometry.plotDepth);
+  const verticalExtent = Math.max(horizontalExtent, maxWallHeight * 2);
+  const fovRad = (fovDeg * Math.PI) / 180;
+  const distance = Math.max(12, ((verticalExtent / 2) / Math.tan(fovRad / 2)) * margin);
+
+  return {
+    distance,
+    near: Math.max(0.05, distance * 0.01),
+    far: distance * 10,
+    positions: {
+      perspective: [distance * 0.62, distance * 0.52, distance * 0.62],
+      // An approximate isometric framing (not the exact 35.264° mathematical
+      // isometric angle) — close enough for a readable 3/4 elevated view.
+      isometric: [distance * 0.71, distance * 0.71, distance * 0.71],
+      top: [0.01, distance * 1.05, 0.01],
+      front: [0.01, distance * 0.35, distance],
+      side: [distance, distance * 0.35, 0.01],
+    },
+  };
+}
