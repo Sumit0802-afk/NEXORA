@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # NEXORA
 
 **The Future Takes Shape.**
@@ -97,3 +98,6 @@ The frontend currently includes a starter dashboard and studio shell. The 2D/3D 
 7. Add exports, sharing, quotas, observability, backups and security hardening.
 
 See `docs/ROADMAP.md` for the phased roadmap.
+=======
+# NEXORA
+>>>>>>> 249180d3127413b739a05f11e21ffd1cf938ab79
