@@ -121,8 +121,11 @@ function explicitWallFor(walls: Wall[], line: Line, a: number, b: number): Wall 
  * floor plan. Room edges on the same line are merged into one wall network (no duplicate walls at
  * T-junctions), and doors/windows are cut out of the walls they sit on. Floors stack at their
  * elevation; `topLevel` hides everything above that floor (default: show every floor).
+ *
+ * `hiddenLevels` — a Set of level indices to skip from rendering. The floors still exist in the
+ * plan data; they are simply excluded from the output geometry so they can be restored later.
  */
-export function buildSceneGeometry(plan: FloorPlan, topLevel?: number): SceneGeometry {
+export function buildSceneGeometry(plan: FloorPlan, topLevel?: number, hiddenLevels?: ReadonlySet<number>): SceneGeometry {
   const last = Math.min(topLevel ?? plan.levels.length - 1, plan.levels.length - 1);
   const ft = plan.units === "m" ? 0.3048 : 1;
   const out: SceneGeometry = {
@@ -131,6 +134,7 @@ export function buildSceneGeometry(plan: FloorPlan, topLevel?: number): SceneGeo
     wallHeight: plan.levels[0]?.wallHeight || 10 * ft, levelCount: Math.max(last + 1, 1),
   };
   for (let i = 0; i <= last; i++) {
+    if (hiddenLevels?.has(i)) continue; // skip hidden floors — data is preserved in the plan
     const part = buildLevel(plan, i);
     out.walls.push(...part.walls);
     out.floors.push(...part.floors);
@@ -305,41 +309,63 @@ export type CameraView = "perspective" | "isometric" | "top" | "front" | "side";
 
 export type CameraFraming = {
   distance: number;
-  /** Height the camera looks at: 0 for one floor, raised for taller buildings so they stay in frame. */
+  targetX: number;
   targetY: number;
+  targetZ: number;
   near: number;
   far: number;
   positions: Record<CameraView, [number, number, number]>;
 };
 
 /**
- * Frames a camera so the whole plot (diagonal, plus wall height) fits in view
- * for the given vertical FOV, with a margin — rather than a fixed/eyeballed
- * distance that clips or shrinks the model as the plot size changes. Returns
- * a position for every camera preset so "Fit to view" is just re-applying
- * the same deterministic framing for the current preset.
+ * Frames a camera so the building is centered, properly scaled, and fills
+ * the view comfortably without clipping.
  */
-export function computeCameraFraming(geometry: SceneGeometry, fovDeg = 45, margin = 0.85): CameraFraming {
-  const maxWallHeight = geometry.walls.reduce((max, w) => Math.max(max, w.baseY + w.height), 10);
-  const horizontalExtent = Math.hypot(geometry.plotWidth, geometry.plotDepth);
-  const extraHeight = Math.max(0, maxWallHeight - geometry.wallHeight);
-  const verticalExtent = Math.max(Math.hypot(horizontalExtent, extraHeight), maxWallHeight * 2);
+export function computeCameraFraming(geometry: SceneGeometry, fovDeg = 45, margin = 0.68): CameraFraming {
+  let minX = -geometry.plotWidth / 2;
+  let maxX = geometry.plotWidth / 2;
+  let minZ = -geometry.plotDepth / 2;
+  let maxZ = geometry.plotDepth / 2;
+  let minY = 0;
+  let maxY = geometry.wallHeight;
+
+  if (geometry.floors.length > 0) {
+    minX = Math.min(...geometry.floors.map((f) => f.centerX - f.width / 2));
+    maxX = Math.max(...geometry.floors.map((f) => f.centerX + f.width / 2));
+    minZ = Math.min(...geometry.floors.map((f) => f.centerZ - f.depth / 2));
+    maxZ = Math.max(...geometry.floors.map((f) => f.centerZ + f.depth / 2));
+    minY = Math.min(...geometry.floors.map((f) => f.baseY));
+    const wallMax = geometry.walls.length > 0 ? Math.max(...geometry.walls.map((w) => w.baseY + w.height)) : geometry.wallHeight;
+    const floorMax = Math.max(...geometry.floors.map((f) => f.baseY + geometry.wallHeight));
+    maxY = Math.max(wallMax, floorMax);
+  }
+
+  const targetX = (minX + maxX) / 2;
+  const targetZ = (minZ + maxZ) / 2;
+  const targetY = (minY + maxY) * 0.42;
+
+  const bWidth = Math.max(maxX - minX, geometry.plotWidth * 0.6);
+  const bDepth = Math.max(maxZ - minZ, geometry.plotDepth * 0.6);
+  const bHeight = Math.max(maxY - minY, geometry.wallHeight);
+
+  const horizontalExtent = Math.hypot(bWidth, bDepth);
+  const verticalExtent = Math.max(horizontalExtent, bHeight * 2);
   const fovRad = (fovDeg * Math.PI) / 180;
-  const distance = Math.max(12, ((verticalExtent / 2) / Math.tan(fovRad / 2)) * margin);
+  const distance = Math.max(14, ((verticalExtent / 2) / Math.tan(fovRad / 2)) * margin);
 
   return {
     distance,
-    targetY: extraHeight * 0.5,
+    targetX,
+    targetY,
+    targetZ,
     near: Math.max(0.05, distance * 0.01),
-    far: distance * 10,
+    far: distance * 12,
     positions: {
-      perspective: [distance * 0.62, distance * 0.52, distance * 0.62],
-      // An approximate isometric framing (not the exact 35.264° mathematical
-      // isometric angle) — close enough for a readable 3/4 elevated view.
-      isometric: [distance * 0.71, distance * 0.71, distance * 0.71],
-      top: [0.01, distance * 1.05, 0.01],
-      front: [0.01, distance * 0.35, distance],
-      side: [distance, distance * 0.35, 0.01],
+      perspective: [targetX + distance * 0.58, targetY + distance * 0.46, targetZ + distance * 0.58],
+      isometric: [targetX + distance * 0.66, targetY + distance * 0.56, targetZ + distance * 0.66],
+      top: [targetX + 0.001, targetY + distance * 0.95, targetZ + 0.001],
+      front: [targetX, targetY + distance * 0.28, targetZ + distance * 0.88],
+      side: [targetX + distance * 0.88, targetY + distance * 0.28, targetZ],
     },
   };
 }

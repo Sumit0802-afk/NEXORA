@@ -71,4 +71,29 @@ describe("multi-floor scene geometry", () => {
     expect([0, 1, 2].map(floorName)).toEqual(["Ground floor", "First floor", "Second floor"]);
     expect([1, 2, 3].map(floorsLabel)).toEqual(["G", "G+1", "G+2"]);
   });
+
+  it("supports 3 floors with staircase continuity for walkthrough", () => {
+    const plan = twoFloors();
+    plan.levels.push({
+      id: "second",
+      elevation: 20,
+      wallHeight: 10,
+      walls: [],
+      openings: [],
+      furniture: [],
+      rooms: [
+        { id: "second-bed", type: "bedroom", name: "Master Suite", polygon: rect(0, 0, 20, 16) },
+        { id: "second-stair", type: "staircase", name: "Staircase", polygon: rect(20, 0, 30, 16) },
+      ],
+    });
+    const g = buildSceneGeometry(plan);
+    expect(g.levelCount).toBe(3);
+    const stairs = g.floors.filter((f) => f.type === "staircase");
+    expect(stairs).toHaveLength(3);
+    expect(stairs[0].baseY).toBe(0);
+    expect(stairs[1].baseY).toBe(10);
+    expect(stairs[2].baseY).toBe(20);
+    // Each floor has room geometry for walkthrough collision & navigation
+    expect(g.floors.filter((f) => f.level === 2).length).toBe(2);
+  });
 });
