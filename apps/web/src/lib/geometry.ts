@@ -56,3 +56,21 @@ export function nearestEdge(polygons: Point[][], p: Point, tolerance: number) {
   }
   return best;
 }
+
+/** Finds the closest wall segment or polygon edge to `p`, within `tolerance` plan units. */
+export function nearestWallOrEdge(
+  polygons: Point[][],
+  walls: { start: Point; end: Point }[],
+  p: Point,
+  tolerance: number
+) {
+  let best = nearestEdge(polygons, p, tolerance);
+  for (const w of walls) {
+    const { point, offset } = projectOntoSegment(p, w.start, w.end);
+    const dist = distance(p, point);
+    if (dist <= tolerance && (!best || dist < best.dist)) {
+      best = { start: w.start, end: w.end, point, offset, dist };
+    }
+  }
+  return best;
+}

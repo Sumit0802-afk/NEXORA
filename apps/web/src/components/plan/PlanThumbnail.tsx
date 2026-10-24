@@ -11,6 +11,8 @@ const ROOM_FILL: Record<RoomType, string> = {
   study: "#F0E5F3",
   utility: "#EEEBE4",
   hallway: "#FBFAF6",
+  corridor: "#FBFAF6",
+  balcony: "#E0ECE4",
   other: "#E4F1E2",
 };
 

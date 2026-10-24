@@ -72,7 +72,7 @@ export type SceneGeometry = {
 
 const EPS = 0.01;
 /** Rooms open to the sky or street: no full-height walls between them, only a low boundary wall at the plot edge. */
-const OPEN_TYPES: ReadonlySet<RoomType> = new Set<RoomType>(["other", "parking"]);
+const OPEN_TYPES: ReadonlySet<RoomType> = new Set<RoomType>(["other", "parking", "balcony"]);
 const DOOR_SWING = (65 * Math.PI) / 180;
 
 type Rect = { id: string; type: RoomType; x0: number; y0: number; x1: number; y1: number };
@@ -182,6 +182,15 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
     addEdge({ axis: "v", at: r.x0 }, r.y0, r.y1);
     addEdge({ axis: "v", at: r.x1 }, r.y0, r.y1);
   }
+  for (const w of explicitWalls) {
+    const horizontal = Math.abs(w.start[1] - w.end[1]) < EPS;
+    const vertical = Math.abs(w.start[0] - w.end[0]) < EPS;
+    if (horizontal) {
+      addEdge({ axis: "h", at: w.start[1] }, Math.min(w.start[0], w.end[0]), Math.max(w.start[0], w.end[0]));
+    } else if (vertical) {
+      addEdge({ axis: "v", at: w.start[0] }, Math.min(w.start[1], w.end[1]), Math.max(w.start[1], w.end[1]));
+    }
+  }
 
   // 2. Classify each elementary interval by what lies on either side, and merge equal neighbours.
   const pieces = new Map<string, Piece[]>();
@@ -195,7 +204,8 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
       if (b - a < EPS) continue;
       const low = roomOn(rects, line, a, b, "low");
       const high = roomOn(rects, line, a, b, "high");
-      if (!low && !high) continue;
+      const explicit = explicitWallFor(explicitWalls, line, a, b);
+      if (!low && !high && !explicit) continue;
       const enclosedLow = !!low && !OPEN_TYPES.has(low.type);
       const enclosedHigh = !!high && !OPEN_TYPES.has(high.type);
       const onBoundary = line.axis === "h" ? line.at < EPS || line.at > L - EPS : line.at < EPS || line.at > W - EPS;
@@ -205,12 +215,13 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
       if (enclosedLow || enclosedHigh) {
         const kind = enclosedLow && enclosedHigh ? "interior" : "exterior";
         piece = { kind, thickness: (kind === "interior" ? 0.5 : 0.75) * ft, height: wallHeight };
+      } else if (explicit) {
+        piece = { kind: explicit.kind || "interior", thickness: (explicit.thickness || 0.5) * ft, height: explicit.height || wallHeight };
       } else if (onBoundary || openEdge) {
         const streetGate = line.axis === "h" && line.at < EPS && (low?.type === "parking" || high?.type === "parking");
         if (!streetGate) piece = { kind: "boundary", thickness: 0.5 * ft, height: boundaryHeight };
       }
       if (!piece) continue;
-      const explicit = piece.kind !== "boundary" ? explicitWallFor(explicitWalls, line, a, b) : undefined;
       if (explicit) piece = { ...piece, thickness: explicit.thickness, height: explicit.height };
       const prev = run[run.length - 1];
       if (prev && Math.abs(prev.to - a) < EPS && prev.kind === piece.kind && prev.thickness === piece.thickness && prev.height === piece.height) {

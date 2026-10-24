@@ -21,10 +21,12 @@ const TYPE_LABEL: Record<RoomType, string> = {
   study: "Study",
   utility: "Utility",
   hallway: "Passage",
+  corridor: "Corridor",
+  balcony: "Balcony",
   other: "Open / other",
 };
 // Uncovered spaces that don't count toward built-up area.
-const OPEN_TYPES = new Set<RoomType>(["parking", "other"]);
+const OPEN_TYPES = new Set<RoomType>(["parking", "other", "balcony"]);
 
 export default function PlanSheetPage({ params }: { params: { projectId: string } }) {
   const { plan, loadError, projectName, isDemo } = usePlanContext();

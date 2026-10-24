@@ -35,12 +35,24 @@ import {
   Home,
   Utensils,
   Footprints,
+  Paintbrush,
+  SunMedium,
+  Download,
 } from "lucide-react";
 import { HouseScene, type HouseSceneHandle, type SceneView, ARCH_STYLES, type ArchStyleId } from "@/components/viewer/HouseScene";
 import { WalkthroughHUD } from "@/components/viewer/WalkthroughHUD";
+import { DesignWizardModal } from "@/components/plan/DesignWizardModal";
+import { InteriorDesignerModal } from "@/components/interior/InteriorDesignerModal";
+import { TerraceDesignerModal } from "@/components/exterior/TerraceDesignerModal";
+import { ArchitecturalAnalysisModal } from "@/components/analysis/ArchitecturalAnalysisModal";
+import { ExportModal } from "@/components/export/ExportModal";
+import { DEFAULT_TERRACE_CONFIG, DEFAULT_EXTERIOR_CONFIG, type TerraceConfig, type ExteriorConfig } from "@/lib/terrace-catalog";
+import { createProject, saveDesign } from "@/lib/api";
 import { buildSceneGeometry } from "@/lib/scene-geometry";
 import { usePlanContext } from "../plan-context";
 import { floorName } from "@/lib/floors";
+import { useRouter } from "next/navigation";
+import type { FloorPlan } from "@houseplan/design-schema";
 
 /* ── Room type metadata ─────────────────────────────────────── */
 function getRoomMeta(type: string) {
@@ -103,6 +115,69 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
     touchLookX: number;
     touchLookY: number;
   }>({ joystickX: 0, joystickY: 0, touchLookX: 0, touchLookY: 0 });
+
+  // ── Architectural design wizard state ──
+  const router = useRouter();
+  const [showDesignWizard, setShowDesignWizard] = useState(false);
+  const [showInteriorModal, setShowInteriorModal] = useState(false);
+  const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(null);
+  const [showFurniture, setShowFurniture] = useState(true);
+  const originalPlanRef = useRef<FloorPlan | null>(null);
+
+  // ── Terrace & Exterior Designer state ──
+  const [showTerraceModal, setShowTerraceModal] = useState(false);
+  const [terraceConfig, setTerraceConfig] = useState<TerraceConfig>(DEFAULT_TERRACE_CONFIG);
+  const [exteriorConfig, setExteriorConfig] = useState<ExteriorConfig>(DEFAULT_EXTERIOR_CONFIG);
+
+  // ── Architectural Analysis (Sunlight, Ventilation & Vastu) state ──
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  const [liveSunPosition, setLiveSunPosition] = useState<[number, number, number] | undefined>(undefined);
+  const [showExportModal, setShowExportModal] = useState(false);
+
+  useEffect(() => {
+    if (plan && !originalPlanRef.current) {
+      originalPlanRef.current = JSON.parse(JSON.stringify(plan));
+    }
+  }, [plan]);
+
+  const handleApplyWizardPlan = useCallback(
+    (newPlan: FloorPlan) => {
+      pushPlan(newPlan);
+      showToast("Applied new architectural layout in 3D");
+    },
+    [pushPlan]
+  );
+
+  const handleSaveAsNew = useCallback(
+    async (newPlan: FloorPlan, name: string) => {
+      try {
+        if (isDemo) {
+          pushPlan(newPlan);
+          showToast(`Saved "${name}" as new design locally`);
+          return;
+        }
+        const created = await createProject({
+          name,
+          units: newPlan.units,
+          plotWidth: newPlan.plot.width,
+          plotLength: newPlan.plot.length,
+        });
+        await saveDesign(created.id, newPlan);
+        showToast(`Created new project: "${name}"`);
+        router.push(`/studio/${created.id}/3d`);
+      } catch (err) {
+        showToast(err instanceof Error ? `Failed: ${err.message}` : "Failed to create new design");
+      }
+    },
+    [isDemo, pushPlan, router]
+  );
+
+  const handleRestoreOriginal = useCallback(() => {
+    if (originalPlanRef.current) {
+      pushPlan(JSON.parse(JSON.stringify(originalPlanRef.current)));
+      showToast("Restored initial floor plan design");
+    }
+  }, [pushPlan]);
 
   // ── Refs ──
   const sceneRef       = useRef<HouseSceneHandle | null>(null);
@@ -312,6 +387,32 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
             <span className="studio-sync-dot" />
             <span>Live 2D Sync</span>
           </div>
+          <button
+            className="button"
+            onClick={() => setShowTerraceModal(true)}
+            title="Design the rooftop terrace, exterior facade, railings, and outdoor furniture"
+            style={{ background: "#FFF8EC", borderColor: "#FCD68A", color: "#92400E", fontWeight: 700 }}
+          >
+            🏛️ Terrace & Exterior
+          </button>
+          <button
+            className="button"
+            onClick={() => setShowInteriorModal(true)}
+            title="Open Realistic Interior Designer for room furniture and styling"
+            style={{ background: "#F5F3FF", borderColor: "#DDD6FE", color: "#5B21B6", fontWeight: 700 }}
+          >
+            <Paintbrush size={14} style={{ marginRight: 5, color: "#7C3AED" }} />Interior Designer
+          </button>
+          <button className="button" onClick={() => setShowDesignWizard(true)} title="Choose from 8 architectural designs and structural terrace layouts">
+            <Sparkles size={14} style={{ marginRight: 5, color: "#7B68EE" }} />House Designs
+          </button>
+          <button
+            className="button"
+            onClick={() => setShowExportModal(true)}
+            title="Export 3D Model (GLB, OBJ) and 2D Architectural Plans"
+          >
+            <Download size={14} style={{ marginRight: 5 }} />Export
+          </button>
           <button className="button" onClick={handleScreenshot} title="Export PNG screenshot">
             <Camera size={14} style={{ marginRight: 5 }} />Screenshot
           </button>
@@ -377,6 +478,103 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
 
               {/* ── Floating Toolbar ── */}
               <div className="studio-floating-toolbar" role="toolbar" aria-label="3D Studio Controls">
+
+                {/* TERRACE & EXTERIOR DESIGNER */}
+                <div className="studio-toolbar-cluster">
+                  <button
+                    className="studio-tool-btn"
+                    onClick={() => setShowTerraceModal(true)}
+                    title="Design rooftop terrace, exterior facade, railings & outdoor furniture"
+                    style={{ background: "rgba(245, 158, 11, 0.12)", color: "#92400E", fontWeight: 700 }}
+                  >
+                    <span style={{ fontSize: 13 }}>🏛️</span>
+                    <span>Terrace</span>
+                  </button>
+
+                  <button
+                    className="studio-tool-btn"
+                    onClick={() => { sceneRef.current?.viewTerrace?.(); showToast("Camera moved to rooftop terrace"); }}
+                    title="Orient camera onto the rooftop terrace"
+                    style={{ background: "rgba(245, 158, 11, 0.08)", color: "#92400E" }}
+                  >
+                    <span style={{ fontSize: 13 }}>🔭</span>
+                    <span>View Roof</span>
+                  </button>
+                </div>
+
+                <div className="studio-toolbar-divider" />
+
+                {/* INTERIOR DESIGNER */}
+                <div className="studio-toolbar-cluster">
+                  <button
+                    className="studio-tool-btn"
+                    onClick={() => setShowInteriorModal(true)}
+                    title="Furnish & customize rooms with 3D furniture and finishes"
+                    style={{ background: "rgba(124, 58, 237, 0.12)", color: "#5B21B6", fontWeight: 700 }}
+                  >
+                    <Paintbrush size={13} style={{ color: "#7C3AED" }} />
+                    <span>Interior</span>
+                  </button>
+
+                  <button
+                    className={`studio-toggle-btn${showFurniture ? " active" : ""}`}
+                    onClick={() => {
+                      setShowFurniture((f) => !f);
+                      showToast(!showFurniture ? "Showing furniture" : "Hiding furniture (empty rooms)");
+                    }}
+                    title="Toggle between furnished and empty-room shell view"
+                  >
+                    {showFurniture ? <Eye size={13} /> : <EyeOff size={13} />}
+                    <span>{showFurniture ? "Furnished" : "Empty"}</span>
+                  </button>
+                </div>
+
+                <div className="studio-toolbar-divider" />
+
+                {/* ARCHITECTURAL DESIGNS */}
+                <div className="studio-toolbar-cluster">
+                  <button
+                    className="studio-tool-btn"
+                    onClick={() => setShowDesignWizard(true)}
+                    title="Change architectural layout or structural terrace"
+                    style={{ background: "rgba(123, 104, 238, 0.15)", color: "#5146A5", fontWeight: 600 }}
+                  >
+                    <Sparkles size={13} style={{ color: "#7B68EE" }} />
+                    <span>Designs</span>
+                  </button>
+                </div>
+
+                <div className="studio-toolbar-divider" />
+
+                {/* ARCHITECTURAL ANALYSIS (SUNLIGHT, VENTILATION & VASTU) */}
+                <div className="studio-toolbar-cluster">
+                  <button
+                    className="studio-tool-btn"
+                    onClick={() => setShowAnalysisModal(true)}
+                    title="Analyze sunlight exposure, cross-ventilation, and optional Vastu layout"
+                    style={{ background: "rgba(245, 158, 11, 0.14)", color: "#B45309", fontWeight: 700 }}
+                  >
+                    <SunMedium size={13} style={{ color: "#D97706" }} />
+                    <span>Sun & Vastu</span>
+                  </button>
+                </div>
+
+                <div className="studio-toolbar-divider" />
+
+                {/* EXPORT 3D & 2D */}
+                <div className="studio-toolbar-cluster">
+                  <button
+                    className="studio-tool-btn"
+                    onClick={() => setShowExportModal(true)}
+                    title="Export 3D GLB/OBJ model, screenshot, or 2D floor plans"
+                    style={{ background: "rgba(16, 185, 129, 0.12)", color: "#047857", fontWeight: 700 }}
+                  >
+                    <Download size={13} style={{ color: "#059669" }} />
+                    <span>Export</span>
+                  </button>
+                </div>
+
+                <div className="studio-toolbar-divider" />
 
                 {/* FLOORS */}
                 <div className="studio-toolbar-cluster" ref={floorMenuRef} style={{ position: "relative" }}>
@@ -630,8 +828,12 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     topLevel={topLevel}
                     selectedRoomId={selectedRoomId}
                     onSelectRoom={handleRoomSelect}
+                    showFurniture={showFurniture}
+                    selectedFurnitureId={selectedFurnitureId}
+                    onSelectFurniture={setSelectedFurnitureId}
                     hiddenLevels={hiddenFloors}
                     styleTheme={styleTheme}
+                    sunPosition={liveSunPosition}
                     walkthroughMode={walkthrough}
                     isFirstPerson={isFirstPerson}
                     onToggleFirstPerson={() => setIsFirstPerson((p) => !p)}
@@ -648,6 +850,8 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     walkthroughTargetFloor={walkTargetFloor}
                     onClearWalkthroughTargetFloor={() => setWalkTargetFloor(null)}
                     mobileWalkthroughInputs={mobileWalkInputs}
+                    terraceConfig={terraceConfig}
+                    exteriorConfig={exteriorConfig}
                   />
                 )}
               </div>
@@ -794,7 +998,14 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                         </div>
 
                         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          <button className="button primary" onClick={handleFocusRoom}><Crosshair size={14} style={{ marginRight: 5 }} />Focus Camera on Room</button>
+                          <button
+                            className="button primary"
+                            style={{ background: "#6D28D9" }}
+                            onClick={() => setShowInteriorModal(true)}
+                          >
+                            <Paintbrush size={14} style={{ marginRight: 5 }} /> Furnish & Style {selected.name}
+                          </button>
+                          <button className="button" onClick={handleFocusRoom}><Crosshair size={14} style={{ marginRight: 5 }} />Focus Camera on Room</button>
                           <button className="button" onClick={() => setSelectedRoomId(null)}>Clear Selection</button>
                         </div>
                       </>
@@ -982,6 +1193,67 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
           </div>
         )}
       </main>
+
+      <DesignWizardModal
+        isOpen={showDesignWizard}
+        onClose={() => setShowDesignWizard(false)}
+        currentPlan={plan}
+        onApplyPlan={handleApplyWizardPlan}
+        onSaveAsNew={handleSaveAsNew}
+        onRestoreOriginal={handleRestoreOriginal}
+        canRestoreOriginal={Boolean(originalPlanRef.current)}
+      />
+
+      <InteriorDesignerModal
+        isOpen={showInteriorModal}
+        onClose={() => setShowInteriorModal(false)}
+        plan={plan}
+        onUpdatePlan={(updated) => {
+          pushPlan(updated);
+          showToast("Updated room interior & furniture");
+        }}
+        initialRoomId={selectedRoomId}
+        selectedFurnitureId={selectedFurnitureId}
+        onSelectFurniture={setSelectedFurnitureId}
+      />
+
+      {plan && (
+        <TerraceDesignerModal
+          isOpen={showTerraceModal}
+          onClose={() => setShowTerraceModal(false)}
+          plan={plan}
+          onUpdatePlan={(updated) => {
+            pushPlan(updated);
+            showToast("Applied terrace layout to 3D model");
+          }}
+          terraceConfig={terraceConfig}
+          onUpdateTerraceConfig={setTerraceConfig}
+          exteriorConfig={exteriorConfig}
+          onUpdateExteriorConfig={setExteriorConfig}
+          onViewTerrace={() => { sceneRef.current?.viewTerrace?.(); setShowTerraceModal(false); showToast("Camera moved to rooftop terrace"); }}
+        />
+      )}
+
+      {plan && (
+        <ArchitecturalAnalysisModal
+          isOpen={showAnalysisModal}
+          onClose={() => setShowAnalysisModal(false)}
+          plan={plan}
+          onUpdateSunPosition={setLiveSunPosition}
+        />
+      )}
+
+      {plan && (
+        <ExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          plan={plan}
+          renderer={sceneRef.current?.getRenderer()}
+          liveScene={sceneRef.current?.getScene()}
+          activeLevelIndex={topLevel ?? 0}
+          initialTab="3d"
+        />
+      )}
     </div>
   );
 }

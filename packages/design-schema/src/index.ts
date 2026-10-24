@@ -3,15 +3,44 @@ import { z } from "zod";
 export const PointSchema = z.tuple([z.number(), z.number()]);
 export const RoomTypeSchema = z.enum([
   "bedroom", "bathroom", "kitchen", "living_room", "dining_room",
-  "hallway", "staircase", "parking", "study", "utility", "other"
+  "hallway", "staircase", "parking", "study", "utility", "balcony", "corridor", "other"
 ]);
+
+export const RoomInteriorSchema = z.object({
+  wallColor: z.string().optional(),
+  wallFinish: z.string().optional(),
+  floorColor: z.string().optional(),
+  floorMaterial: z.string().optional(),
+  ceilingStyle: z.string().optional(),
+  lightingType: z.string().optional(),
+  lightingColor: z.string().optional(),
+}).passthrough();
 
 export const RoomSchema = z.object({
   id: z.string().min(1),
   type: RoomTypeSchema,
   name: z.string().min(1),
-  polygon: z.array(PointSchema).min(3)
-});
+  polygon: z.array(PointSchema).min(3),
+  interior: RoomInteriorSchema.optional(),
+}).passthrough();
+
+export const FurnitureItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  category: z.string(),
+  type: z.string(),
+  roomId: z.string(),
+  levelId: z.string(),
+  position: z.tuple([z.number(), z.number(), z.number()]),
+  rotation: z.number().default(0),
+  scale: z.tuple([z.number(), z.number(), z.number()]).default([1, 1, 1]),
+  dimensions: z.object({
+    width: z.number(),
+    depth: z.number(),
+    height: z.number(),
+  }),
+  material: z.record(z.unknown()).optional(),
+}).passthrough();
 
 export const WallSchema = z.object({
   id: z.string(),
@@ -49,7 +78,7 @@ export const FloorPlanSchema = z.object({
     rooms: z.array(RoomSchema),
     walls: z.array(WallSchema),
     openings: z.array(OpeningSchema),
-    furniture: z.array(z.record(z.unknown())).default([])
+    furniture: z.array(z.union([FurnitureItemSchema, z.record(z.unknown())])).default([])
   })),
   metadata: z.object({
     version: z.number().int().positive(),
@@ -60,5 +89,8 @@ export const FloorPlanSchema = z.object({
 export type FloorPlan = z.infer<typeof FloorPlanSchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type RoomType = z.infer<typeof RoomTypeSchema>;
+export type RoomInterior = z.infer<typeof RoomInteriorSchema>;
+export type FurnitureItem = z.infer<typeof FurnitureItemSchema>;
 export type Wall = z.infer<typeof WallSchema>;
 export type Opening = z.infer<typeof OpeningSchema>;
+

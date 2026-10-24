@@ -1,15 +1,15 @@
 "use client";
 
 import { forwardRef, useEffect, useState } from "react";
-import { Stage, Layer, Group, Rect, Text, Line, Arc } from "react-konva";
-import type { FloorPlan, Room, RoomType, Wall, Opening } from "@houseplan/design-schema";
+import { Stage, Layer, Group, Rect, Text, Line, Arc, Circle } from "react-konva";
+import type { FloorPlan, FurnitureItem, Room, RoomType, Wall, Opening } from "@houseplan/design-schema";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { nearestEdge, snapToGrid } from "@/lib/geometry";
+import { nearestWallOrEdge, snapToGrid } from "@/lib/geometry";
 
 type RoomBounds = { minX: number; minY: number; maxX: number; maxY: number };
 type Mode = "select" | "room" | "wall" | "measure" | "door" | "window";
-export type Selection = { type: "room" | "wall" | "opening"; id: string } | null;
+export type Selection = { type: "room" | "wall" | "opening" | "furniture"; id: string } | null;
 type HandleCorner = "nw" | "ne" | "se" | "sw";
 
 function roomBounds(room: Room): RoomBounds {
@@ -19,8 +19,24 @@ function roomBounds(room: Room): RoomBounds {
 }
 
 const MIN_ROOM_SIZE = 3;
-const EDGE_SNAP_TOLERANCE = 1.5;
+const EDGE_SNAP_TOLERANCE = 1.6;
 const OPENING_WIDTH = 3;
+
+const ROOM_STYLES: Record<string, { fill: string; stroke: string; label: string }> = {
+  bedroom:     { fill: "#EBF1F8", stroke: "#4B6B94", label: "Bedroom" },
+  living_room: { fill: "#F8F3E8", stroke: "#8B6B3E", label: "Living Room" },
+  kitchen:     { fill: "#ECF4E8", stroke: "#4F7843", label: "Kitchen" },
+  bathroom:    { fill: "#E2F0F4", stroke: "#3E7B8D", label: "Bathroom" },
+  dining_room: { fill: "#F7EEDC", stroke: "#9C6B38", label: "Dining Room" },
+  study:       { fill: "#F1EBF4", stroke: "#6E4E80", label: "Study Room" },
+  corridor:    { fill: "#F3F2F7", stroke: "#656080", label: "Corridor" },
+  hallway:     { fill: "#F3F2F7", stroke: "#656080", label: "Hallway" },
+  balcony:     { fill: "#E2ECE5", stroke: "#3B7A58", label: "Balcony" },
+  utility:     { fill: "#EFECE6", stroke: "#746E65", label: "Utility" },
+  staircase:   { fill: "#EBE6DE", stroke: "#6E6254", label: "Staircase" },
+  parking:     { fill: "#EAE9EE", stroke: "#5D5970", label: "Parking" },
+  other:       { fill: "#EAECE8", stroke: "#5E6E60", label: "Other" },
+};
 
 export const FloorPlanCanvas = forwardRef<Konva.Stage, {
   plan: FloorPlan;
@@ -38,8 +54,12 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
   panEnabled?: boolean;
   onAddRoom?: (polygon: [number, number][]) => void;
   onAddWall?: (start: [number, number], end: [number, number]) => void;
+  onUpdateWall?: (wallId: string, start: [number, number], end: [number, number]) => void;
   onAddOpening?: (wall: { start: [number, number]; end: [number, number] }, offset: number, kind: "door" | "window") => void;
+  onMoveOpening?: (openingId: string, newOffset: number) => void;
   onMeasure?: (distance: number | null) => void;
+  onSelectFurniture?: (id: string | null) => void;
+  onMoveFurniture?: (id: string, x: number, y: number) => void;
 }>(function FloorPlanCanvas(
   {
     plan,
@@ -56,8 +76,12 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
     panEnabled = false,
     onAddRoom,
     onAddWall,
+    onUpdateWall,
     onAddOpening,
+    onMoveOpening,
     onMeasure,
+    onSelectFurniture,
+    onMoveFurniture,
   },
   stageRef
 ) {
@@ -71,17 +95,24 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
   const walls = level?.walls ?? [];
   const openings = level?.openings ?? [];
   const roomsBelow = levelIndex > 0 ? plan.levels[levelIndex - 1]?.rooms ?? [] : [];
+
   const [draft, setDraft] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [measureLine, setMeasureLine] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [hoverEdge, setHoverEdge] = useState<{ start: [number, number]; end: [number, number]; point: [number, number] } | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [resizeDraft, setResizeDraft] = useState<RoomBounds | null>(null);
+  const [wallDraft, setWallDraft] = useState<{ id: string; start: [number, number]; end: [number, number] } | null>(null);
+  const [openingDraft, setOpeningDraft] = useState<{ id: string; offset: number } | null>(null);
+  const [activeGuides, setActiveGuides] = useState<{ axis: "h" | "v"; pos: number }[]>([]);
 
   useEffect(() => {
     setDraft(null);
     setMeasureLine(null);
     setHoverEdge(null);
     setResizeDraft(null);
+    setWallDraft(null);
+    setOpeningDraft(null);
+    setActiveGuides([]);
   }, [mode]);
 
   const toUnits = (stage: Konva.Stage, snap = false) => {
@@ -130,8 +161,9 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
       return;
     }
     if (mode === "door" || mode === "window") {
-      const edge = nearestEdge(
+      const edge = nearestWallOrEdge(
         rooms.map((r) => r.polygon),
+        walls.map((w) => ({ start: w.start, end: w.end })),
         [point.x, point.y],
         EDGE_SNAP_TOLERANCE
       );
@@ -161,8 +193,9 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
     if (mode === "door" || mode === "window") {
       const point = toUnits(stage);
       if (!point) return;
-      const edge = nearestEdge(
+      const edge = nearestWallOrEdge(
         rooms.map((r) => r.polygon),
+        walls.map((w) => ({ start: w.start, end: w.end })),
         [point.x, point.y],
         EDGE_SNAP_TOLERANCE
       );
@@ -211,13 +244,17 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
         style={{ cursor }}
       >
         <Layer>
+          {/* Plot Dimension Header */}
           <Text
             x={20}
             y={12}
-            text={`${plan.plot.width} × ${plan.plot.length} ${plan.units}`}
+            text={`Plot: ${plan.plot.width} × ${plan.plot.length} ${plan.units}`}
             fontSize={13}
             fill="#817D94"
+            fontStyle="bold"
           />
+
+          {/* Plot Boundary */}
           <Rect
             x={offsetX}
             y={offsetY}
@@ -227,6 +264,8 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
             strokeWidth={4}
             fill="#FFFDF7"
           />
+
+          {/* Ghost outline of floor below */}
           {roomsBelow.map((room) => {
             const { minX, minY, maxX, maxY } = roomBounds(room);
             return (
@@ -243,20 +282,27 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
               />
             );
           })}
-          {rooms.map((room, index) => {
+
+          {/* Rooms */}
+          {rooms.map((room) => {
             const isSelected = selection?.type === "room" && selection.id === room.id;
             const { minX, minY, maxX, maxY } = isSelected && resizeDraft ? resizeDraft : roomBounds(room);
             const isHovered = hoverId === room.id && mode === "select";
+            const rWidth = maxX - minX;
+            const rHeight = maxY - minY;
+            const area = rWidth * rHeight;
+            const style = ROOM_STYLES[room.type] ?? { fill: "#F0EDFA", stroke: "#5146A5", label: room.name };
+
             return (
               <Group key={room.id}>
                 <Rect
                   x={offsetX + minX * scale}
                   y={offsetY + minY * scale}
-                  width={(maxX - minX) * scale}
-                  height={(maxY - minY) * scale}
-                  fill={isHovered ? "#5146A52a" : index % 2 === 0 ? "#FFF4D6" : "#F0EDFA"}
-                  stroke={isSelected ? "#E0631E" : "#5146A5"}
-                  strokeWidth={isSelected ? 3 : 2}
+                  width={rWidth * scale}
+                  height={rHeight * scale}
+                  fill={isHovered ? "#5146A530" : style.fill}
+                  stroke={isSelected ? "#E0631E" : style.stroke}
+                  strokeWidth={isSelected ? 3.5 : 2}
                   draggable={mode === "select" && !panEnabled}
                   onMouseEnter={() => mode === "select" && setHoverId(room.id)}
                   onMouseLeave={() => setHoverId((h) => (h === room.id ? null : h))}
@@ -268,64 +314,237 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
                     e.cancelBubble = true;
                     onSelect?.({ type: "room", id: room.id });
                   }}
+                  onDragMove={(e) => {
+                    const node = e.target as Konva.Rect;
+                    const curX = (node.x() - offsetX) / scale;
+                    const curY = (node.y() - offsetY) / scale;
+                    // Check for alignment with other rooms
+                    const guides: { axis: "h" | "v"; pos: number }[] = [];
+                    for (const other of rooms) {
+                      if (other.id === room.id) continue;
+                      const ob = roomBounds(other);
+                      if (Math.abs(ob.minX - curX) < 0.4) guides.push({ axis: "v", pos: ob.minX });
+                      if (Math.abs(ob.maxX - (curX + rWidth)) < 0.4) guides.push({ axis: "v", pos: ob.maxX });
+                      if (Math.abs(ob.minY - curY) < 0.4) guides.push({ axis: "h", pos: ob.minY });
+                      if (Math.abs(ob.maxY - (curY + rHeight)) < 0.4) guides.push({ axis: "h", pos: ob.maxY });
+                    }
+                    setActiveGuides(guides);
+                  }}
                   onDragEnd={(e) => {
                     const node = e.target as Konva.Rect;
-                    const dx = (node.x() - (offsetX + minX * scale)) / scale;
-                    const dy = (node.y() - (offsetY + minY * scale)) / scale;
+                    const rawDx = (node.x() - (offsetX + minX * scale)) / scale;
+                    const rawDy = (node.y() - (offsetY + minY * scale)) / scale;
                     node.position({ x: offsetX + minX * scale, y: offsetY + minY * scale });
-                    if (dx !== 0 || dy !== 0) onMoveRoom?.(room.id, dx, dy);
+                    setActiveGuides([]);
+                    if (rawDx !== 0 || rawDy !== 0) {
+                      // Clamp within plot boundaries
+                      const clampedDx = Math.max(-minX, Math.min(plan.plot.width - maxX, rawDx));
+                      const clampedDy = Math.max(-minY, Math.min(plan.plot.length - maxY, rawDy));
+                      onMoveRoom?.(room.id, clampedDx, clampedDy);
+                    }
                   }}
                 />
+
+                {/* Room Name */}
                 <Text
-                  x={offsetX + minX * scale + 5}
-                  y={offsetY + minY * scale + 8}
+                  x={offsetX + minX * scale + 4}
+                  y={offsetY + minY * scale + Math.max(6, (rHeight * scale) / 2 - 16)}
                   text={room.name}
-                  fontSize={11}
-                  fill="#302A65"
-                  width={Math.max(50, (maxX - minX) * scale - 10)}
+                  fontSize={12}
+                  fontStyle="bold"
+                  fill="#201C4B"
+                  width={Math.max(40, rWidth * scale - 8)}
                   align="center"
                   listening={false}
                 />
-                {isSelected && mode === "select" && (
+
+                {/* Dimensions & Area */}
+                <Text
+                  x={offsetX + minX * scale + 4}
+                  y={offsetY + minY * scale + Math.max(22, (rHeight * scale) / 2 + 2)}
+                  text={`${rWidth.toFixed(1)} × ${rHeight.toFixed(1)} ${plan.units} (${area.toFixed(0)} sq ${plan.units === "m" ? "m" : "ft"})`}
+                  fontSize={9.5}
+                  fill={isSelected ? "#E0631E" : "#5B5579"}
+                  width={Math.max(40, rWidth * scale - 8)}
+                  align="center"
+                  listening={false}
+                />
+              </Group>
+            );
+          })}
+
+          {/* 2D Furniture items on this level */}
+          {((level?.furniture || []) as FurnitureItem[]).map((item) => {
+            const isSelected = selection?.type === "furniture" && selection.id === item.id;
+            const w = item.dimensions.width * (item.scale?.[0] ?? 1) * scale;
+            const d = item.dimensions.depth * (item.scale?.[1] ?? 1) * scale;
+            const px = offsetX + item.position[0] * scale;
+            const py = offsetY + item.position[1] * scale;
+            const rotDeg = ((item.rotation || 0) * 180) / Math.PI;
+
+            return (
+              <Group
+                key={item.id}
+                x={px}
+                y={py}
+                rotation={rotDeg}
+                draggable={mode === "select" && !panEnabled}
+                onClick={(e) => {
+                  e.cancelBubble = true;
+                  if (mode === "select") {
+                    onSelect?.({ type: "furniture", id: item.id });
+                    onSelectFurniture?.(item.id);
+                  }
+                }}
+                onDragEnd={(e) => {
+                  const node = e.target;
+                  const newX = (node.x() - offsetX) / scale;
+                  const newY = (node.y() - offsetY) / scale;
+                  node.position({ x: px, y: py });
+                  onMoveFurniture?.(item.id, newX, newY);
+                }}
+              >
+                <Rect
+                  x={-w / 2}
+                  y={-d / 2}
+                  width={w}
+                  height={d}
+                  fill={item.material?.color ? `${item.material.color}c0` : "#5146A540"}
+                  stroke={isSelected ? "#FFD700" : "#5146A5"}
+                  strokeWidth={isSelected ? 2.5 : 1}
+                  cornerRadius={2}
+                />
+                <Text
+                  x={-w / 2 + 2}
+                  y={-5}
+                  text={item.name}
+                  fontSize={Math.max(7, Math.min(10, w / 4.5))}
+                  fill="#1E1E24"
+                  width={w - 4}
+                  align="center"
+                  listening={false}
+                />
+              </Group>
+            );
+          })}
+
+          {/* Standalone and Boundary Walls */}
+          {walls.map((wall: Wall) => {
+            const isSelected = selection?.type === "wall" && selection.id === wall.id;
+            const isHovered = hoverId === wall.id && mode === "select";
+            const curStart = wallDraft && wallDraft.id === wall.id ? wallDraft.start : wall.start;
+            const curEnd = wallDraft && wallDraft.id === wall.id ? wallDraft.end : wall.end;
+            const wallLength = Math.hypot(curEnd[0] - curStart[0], curEnd[1] - curStart[1]);
+
+            return (
+              <Group key={wall.id}>
+                <Line
+                  points={[
+                    offsetX + curStart[0] * scale,
+                    offsetY + curStart[1] * scale,
+                    offsetX + curEnd[0] * scale,
+                    offsetY + curEnd[1] * scale,
+                  ]}
+                  stroke={isSelected ? "#E0631E" : isHovered ? "#5146A5" : "#302A65"}
+                  strokeWidth={isSelected ? 5 : Math.max(3.5, wall.thickness * scale * 0.45)}
+                  hitStrokeWidth={18}
+                  listening={mode === "select"}
+                  onMouseEnter={() => setHoverId(wall.id)}
+                  onMouseLeave={() => setHoverId((h) => (h === wall.id ? null : h))}
+                  onClick={(e) => {
+                    e.cancelBubble = true;
+                    onSelect?.({ type: "wall", id: wall.id });
+                  }}
+                />
+
+                {/* Wall Length Dimension Tag */}
+                {(isSelected || isHovered) && (
                   <Text
-                    x={offsetX + minX * scale + 5}
-                    y={offsetY + maxY * scale - 16}
-                    text={`${(maxX - minX).toFixed(1)} × ${(maxY - minY).toFixed(1)} ${plan.units}`}
+                    x={offsetX + ((curStart[0] + curEnd[0]) / 2) * scale + 6}
+                    y={offsetY + ((curStart[1] + curEnd[1]) / 2) * scale - 14}
+                    text={`${wallLength.toFixed(1)} ${plan.units}`}
                     fontSize={10}
-                    fill="#E0631E"
+                    fontStyle="bold"
+                    fill={isSelected ? "#E0631E" : "#302A65"}
                     listening={false}
                   />
+                )}
+
+                {/* Draggable Wall Endpoint Handles */}
+                {isSelected && mode === "select" && !panEnabled && (
+                  <>
+                    {/* Start Handle */}
+                    <Circle
+                      x={offsetX + curStart[0] * scale}
+                      y={offsetY + curStart[1] * scale}
+                      radius={6}
+                      fill="#FFFFFF"
+                      stroke="#E0631E"
+                      strokeWidth={2.5}
+                      draggable
+                      onDragMove={(e) => {
+                        const stage = e.target.getStage();
+                        if (!stage) return;
+                        const pt = toUnits(stage, true);
+                        if (!pt) return;
+                        let nx = pt.x;
+                        let ny = pt.y;
+                        for (const w of walls) {
+                          if (w.id === wall.id) continue;
+                          if (Math.hypot(w.start[0] - nx, w.start[1] - ny) < 0.6) { nx = w.start[0]; ny = w.start[1]; break; }
+                          if (Math.hypot(w.end[0] - nx, w.end[1] - ny) < 0.6) { nx = w.end[0]; ny = w.end[1]; break; }
+                        }
+                        setWallDraft({ id: wall.id, start: [nx, ny], end: curEnd });
+                      }}
+                      onDragEnd={(e) => {
+                        const node = e.target;
+                        node.position({ x: offsetX + curStart[0] * scale, y: offsetY + curStart[1] * scale });
+                        if (wallDraft && wallDraft.id === wall.id) {
+                          onUpdateWall?.(wall.id, wallDraft.start, wallDraft.end);
+                        }
+                        setWallDraft(null);
+                      }}
+                    />
+
+                    {/* End Handle */}
+                    <Circle
+                      x={offsetX + curEnd[0] * scale}
+                      y={offsetY + curEnd[1] * scale}
+                      radius={6}
+                      fill="#FFFFFF"
+                      stroke="#E0631E"
+                      strokeWidth={2.5}
+                      draggable
+                      onDragMove={(e) => {
+                        const stage = e.target.getStage();
+                        if (!stage) return;
+                        const pt = toUnits(stage, true);
+                        if (!pt) return;
+                        let nx = pt.x;
+                        let ny = pt.y;
+                        for (const w of walls) {
+                          if (w.id === wall.id) continue;
+                          if (Math.hypot(w.start[0] - nx, w.start[1] - ny) < 0.6) { nx = w.start[0]; ny = w.start[1]; break; }
+                          if (Math.hypot(w.end[0] - nx, w.end[1] - ny) < 0.6) { nx = w.end[0]; ny = w.end[1]; break; }
+                        }
+                        setWallDraft({ id: wall.id, start: curStart, end: [nx, ny] });
+                      }}
+                      onDragEnd={(e) => {
+                        const node = e.target;
+                        node.position({ x: offsetX + curEnd[0] * scale, y: offsetY + curEnd[1] * scale });
+                        if (wallDraft && wallDraft.id === wall.id) {
+                          onUpdateWall?.(wall.id, wallDraft.start, wallDraft.end);
+                        }
+                        setWallDraft(null);
+                      }}
+                    />
+                  </>
                 )}
               </Group>
             );
           })}
 
-          {walls.map((wall: Wall) => {
-            const isSelected = selection?.type === "wall" && selection.id === wall.id;
-            const isHovered = hoverId === wall.id && mode === "select";
-            return (
-              <Line
-                key={wall.id}
-                points={[
-                  offsetX + wall.start[0] * scale,
-                  offsetY + wall.start[1] * scale,
-                  offsetX + wall.end[0] * scale,
-                  offsetY + wall.end[1] * scale,
-                ]}
-                stroke={isSelected ? "#E0631E" : isHovered ? "#5146A5" : "#302A65"}
-                strokeWidth={Math.max(3, wall.thickness * scale * 0.4)}
-                hitStrokeWidth={14}
-                listening={mode === "select"}
-                onMouseEnter={() => setHoverId(wall.id)}
-                onMouseLeave={() => setHoverId((h) => (h === wall.id ? null : h))}
-                onClick={(e) => {
-                  e.cancelBubble = true;
-                  onSelect?.({ type: "wall", id: wall.id });
-                }}
-              />
-            );
-          })}
-
+          {/* Openings (Doors & Windows) */}
           {openings.map((opening: Opening) => {
             const wall = walls.find((w) => w.id === opening.wallId);
             if (!wall) return null;
@@ -334,26 +553,47 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
             const len = Math.hypot(dx, dy) || 1;
             const ux = dx / len;
             const uy = dy / len;
-            const cx = wall.start[0] + ux * opening.offset;
-            const cy = wall.start[1] + uy * opening.offset;
+            const curOffset = openingDraft && openingDraft.id === opening.id ? openingDraft.offset : opening.offset;
+            const cx = wall.start[0] + ux * curOffset;
+            const cy = wall.start[1] + uy * curOffset;
             const half = (opening.width / 2) * scale;
             const px = offsetX + cx * scale;
             const py = offsetY + cy * scale;
             const isDoor = opening.kind === "door";
             const isSelected = selection?.type === "opening" && selection.id === opening.id;
+
             return (
               <Group
                 key={opening.id}
+                draggable={isSelected && mode === "select" && !panEnabled}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   if (mode === "select") onSelect?.({ type: "opening", id: opening.id });
+                }}
+                onDragMove={(e) => {
+                  const stage = e.target.getStage();
+                  if (!stage) return;
+                  const pt = toUnits(stage);
+                  if (!pt) return;
+                  const proj = (pt.x - wall.start[0]) * ux + (pt.y - wall.start[1]) * uy;
+                  const snapped = snapToGrid(proj, gridSize);
+                  const clamped = Math.max(opening.width / 2, Math.min(len - opening.width / 2, snapped));
+                  setOpeningDraft({ id: opening.id, offset: clamped });
+                }}
+                onDragEnd={(e) => {
+                  const node = e.target;
+                  node.position({ x: 0, y: 0 });
+                  if (openingDraft && openingDraft.id === opening.id) {
+                    onMoveOpening?.(opening.id, openingDraft.offset);
+                  }
+                  setOpeningDraft(null);
                 }}
               >
                 <Line
                   points={[px - ux * half, py - uy * half, px + ux * half, py + uy * half]}
                   stroke={isSelected ? "#E0631E" : isDoor ? "#FFFDF7" : "#8bbae0"}
-                  strokeWidth={isDoor ? 6 : 5}
-                  hitStrokeWidth={14}
+                  strokeWidth={isDoor ? 7 : 5.5}
+                  hitStrokeWidth={16}
                   listening={mode === "select"}
                 />
                 {isDoor && (
@@ -364,8 +604,20 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
                     outerRadius={half * 2}
                     angle={90}
                     rotation={(Math.atan2(uy, ux) * 180) / Math.PI}
-                    stroke={isSelected ? "#E0631E" : "#b1874f"}
-                    strokeWidth={1}
+                    stroke={isSelected ? "#E0631E" : "#B1874F"}
+                    strokeWidth={1.5}
+                    listening={false}
+                  />
+                )}
+                {/* Opening Tag when selected */}
+                {isSelected && (
+                  <Text
+                    x={px - 20}
+                    y={py - 16}
+                    text={`${isDoor ? "Door" : "Window"} ${opening.width.toFixed(1)}${plan.units}`}
+                    fontSize={10}
+                    fontStyle="bold"
+                    fill="#E0631E"
                     listening={false}
                   />
                 )}
@@ -373,6 +625,7 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
             );
           })}
 
+          {/* Hover placement ghost line */}
           {(mode === "door" || mode === "window") && hoverEdge && (
             <Line
               points={[
@@ -388,6 +641,7 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
             />
           )}
 
+          {/* Draft Drawing: Room */}
           {draft && mode === "room" && (
             <Group>
               <Rect
@@ -395,23 +649,25 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
                 y={offsetY + Math.min(draft.y0, draft.y1) * scale}
                 width={Math.abs(draft.x1 - draft.x0) * scale}
                 height={Math.abs(draft.y1 - draft.y0) * scale}
-                fill="#5146A51a"
+                fill="#5146A520"
                 stroke="#5146A5"
                 dash={[6, 4]}
-                strokeWidth={1.5}
+                strokeWidth={2}
                 listening={false}
               />
               <Text
-                x={offsetX + Math.min(draft.x0, draft.x1) * scale + 4}
-                y={offsetY + Math.min(draft.y0, draft.y1) * scale + 4}
+                x={offsetX + Math.min(draft.x0, draft.x1) * scale + 6}
+                y={offsetY + Math.min(draft.y0, draft.y1) * scale + 6}
                 text={`${Math.abs(draft.x1 - draft.x0).toFixed(1)} × ${Math.abs(draft.y1 - draft.y0).toFixed(1)} ${plan.units}`}
                 fontSize={11}
+                fontStyle="bold"
                 fill="#5146A5"
                 listening={false}
               />
             </Group>
           )}
 
+          {/* Draft Drawing: Wall */}
           {draft && mode === "wall" && (
             <Group>
               <Line
@@ -422,7 +678,7 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
                   offsetY + draft.y1 * scale,
                 ]}
                 stroke="#302A65"
-                strokeWidth={4}
+                strokeWidth={4.5}
                 dash={[6, 4]}
                 listening={false}
               />
@@ -438,6 +694,7 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
             </Group>
           )}
 
+          {/* Measure Line */}
           {measureLine && (
             <Group>
               <Line
@@ -464,6 +721,23 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
             </Group>
           )}
 
+          {/* Alignment Guides */}
+          {activeGuides.map((guide, idx) => (
+            <Line
+              key={`guide-${idx}`}
+              points={
+                guide.axis === "v"
+                  ? [offsetX + guide.pos * scale, offsetY, offsetX + guide.pos * scale, offsetY + plan.plot.length * scale]
+                  : [offsetX, offsetY + guide.pos * scale, offsetX + plan.plot.width * scale, offsetY + guide.pos * scale]
+              }
+              stroke="#E0631E"
+              strokeWidth={1.5}
+              dash={[4, 4]}
+              listening={false}
+            />
+          ))}
+
+          {/* Room Resize Handles */}
           {selection?.type === "room" && mode === "select" && !panEnabled && (() => {
             const room = rooms.find((r) => r.id === selection.id);
             if (!room) return null;
@@ -527,6 +801,7 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
             );
           })()}
 
+          {/* Plot Dimension Bottom Tag */}
           <Line
             points={[
               offsetX,
@@ -540,12 +815,14 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
           <Text
             x={offsetX}
             y={offsetY + plan.plot.length * scale + 22}
-            text={`${plan.plot.width} ${plan.units}`}
+            text={`Width: ${plan.plot.width} ${plan.units}`}
             fontSize={11}
             fill="#817D94"
             width={plan.plot.width * scale}
             align="center"
           />
+
+          {/* Grid lines */}
           {showGrid &&
             Array.from({ length: Math.floor(plan.plot.width / gridSize) + 1 }, (_, i) => i * gridSize).map((gx) => (
               <Line

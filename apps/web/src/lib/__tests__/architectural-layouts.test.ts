@@ -22,13 +22,16 @@ describe("Architectural Layouts Engine", () => {
     expect(designKeys).toContain("contemporary_luxury");
 
     const terraceKeys = Object.keys(TERRACE_DESIGNS);
-    expect(terraceKeys).toHaveLength(6);
+    expect(terraceKeys).toHaveLength(9);
     expect(terraceKeys).toContain("open");
     expect(terraceKeys).toContain("garden");
     expect(terraceKeys).toContain("pergola");
     expect(terraceKeys).toContain("covered");
     expect(terraceKeys).toContain("lounge");
     expect(terraceKeys).toContain("utility");
+    expect(terraceKeys).toContain("outdoor_dining");
+    expect(terraceKeys).toContain("solar");
+    expect(terraceKeys).toContain("traditional_indian");
   });
 
   const archetypes: ArchitecturalDesignId[] = [

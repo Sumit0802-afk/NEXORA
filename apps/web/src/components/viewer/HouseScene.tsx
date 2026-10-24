@@ -4,8 +4,8 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Grid, Html, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { BoxGeometry, Vector3, type WebGLRenderer } from "three";
-import type { FloorPlan, RoomType } from "@houseplan/design-schema";
+import { BoxGeometry, Vector3, type WebGLRenderer, type Scene } from "three";
+import type { FloorPlan, FurnitureItem, RoomType } from "@houseplan/design-schema";
 import {
   buildSceneGeometry,
   computeCameraFraming,
@@ -15,15 +15,21 @@ import {
 } from "@/lib/scene-geometry";
 import { StaircaseGeometry } from "./StaircaseGeometry";
 import { WalkthroughController } from "./WalkthroughController";
+import { FurniturePiece } from "./FurnitureGeometry";
+import { TerraceExteriorGeometry } from "./TerraceExteriorGeometry";
+import type { TerraceConfig, ExteriorConfig } from "@/lib/terrace-catalog";
 
 export type SceneView = CameraView;
 export type HouseSceneHandle = {
   captureScreenshot: () => string | null;
+  getRenderer: () => WebGLRenderer | null;
+  getScene: () => Scene | null;
   fitToView: () => void;
   resetCamera: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
   focusRoom: (roomId: string) => void;
+  viewTerrace: () => void;
 };
 
 // ── Architectural Style Themes ──────────────────────────────────
@@ -168,6 +174,8 @@ const FLOOR_SPECS: Record<RoomType, FloorMaterialSpec> = {
   staircase:   { color: "#C6BEAF", roughness: 0.45, metalness: 0.02, label: "Limestone Steps" },
   hallway:     { color: "#E5DFD4", roughness: 0.52, metalness: 0.02, label: "Travertine Floor" },
   parking:     { color: "#A8A59E", roughness: 0.85, metalness: 0.05, label: "Brushed Pavers" },
+  corridor:    { color: "#E5DFD4", roughness: 0.52, metalness: 0.02, label: "Travertine Floor" },
+  balcony:     { color: "#C4B49F", roughness: 0.70, metalness: 0.02, label: "Teak Decking" },
   other:       { color: "#C6BBAA", roughness: 0.62, metalness: 0.02, label: "Architectural Pavers" },
 };
 
@@ -179,6 +187,7 @@ function getFloorSpec(floor: RoomFloor): FloorMaterialSpec {
 }
 
 function GeneratedHouse({
+  plan,
   geometry,
   cutHeight,
   showLabels,
@@ -186,7 +195,11 @@ function GeneratedHouse({
   onSelectRoom,
   theme,
   showRoof = true,
+  showFurniture = true,
+  selectedFurnitureId,
+  onSelectFurniture,
 }: {
+  plan: FloorPlan;
   geometry: SceneGeometry;
   cutHeight: number | null;
   showLabels: boolean;
@@ -194,6 +207,9 @@ function GeneratedHouse({
   onSelectRoom?: (id: string | null) => void;
   theme: StyleTheme;
   showRoof?: boolean;
+  showFurniture?: boolean;
+  selectedFurnitureId?: string | null;
+  onSelectFurniture?: (id: string | null) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const clip = (base: number, height: number) => (cutHeight === null ? height : Math.min(base + height, cutHeight) - base);
@@ -258,6 +274,8 @@ function GeneratedHouse({
         const selected = floor.id === selectedRoomId;
         const hot = floor.id === hovered;
         const spec = getFloorSpec(floor);
+        const room = plan.levels[floor.level]?.rooms.find((r) => r.id === floor.id);
+        const floorColor = room?.interior?.floorColor ?? spec.color;
         const floorHeight = floor.level > 0 ? slab * 8 : slab * 2;
         const floorY = floor.baseY + (floor.level > 0 && floor.type !== "other" ? slab * 4 : slab);
 
@@ -276,13 +294,23 @@ function GeneratedHouse({
             >
               <boxGeometry args={[Math.max(floor.width - 0.04, 0.02), floorHeight, Math.max(floor.depth - 0.04, 0.02)]} />
               <meshStandardMaterial
-                color={spec.color}
+                color={floorColor}
                 roughness={spec.roughness}
                 metalness={spec.metalness}
                 emissive={selected ? "#5146A5" : hot ? "#7B71C8" : "#000000"}
                 emissiveIntensity={selected ? 0.55 : hot ? 0.22 : 0}
               />
             </mesh>
+
+            {/* Custom room lighting ambiance */}
+            {room?.interior?.lightingColor && (
+              <pointLight
+                position={[floor.centerX, floorY + geometry.wallHeight * 0.7, floor.centerZ]}
+                color={room.interior.lightingColor}
+                intensity={1.6}
+                distance={Math.max(floor.width, floor.depth) * 1.4}
+              />
+            )}
 
             {/* Selection outline */}
             {selected && (
@@ -299,6 +327,38 @@ function GeneratedHouse({
           </group>
         );
       })}
+
+      {/* 3D Furniture Items */}
+      {showFurniture &&
+        plan.levels.map((level, lvIdx) => {
+          if (cutHeight !== null && level.elevation >= cutHeight) return null;
+          const items = (level.furniture || []) as FurnitureItem[];
+          const floorY = level.elevation + (lvIdx > 0 ? slab * 4 : slab);
+          return (
+            <group key={`furn-level-${level.id}`}>
+              {items.map((item) => {
+                const worldItem: FurnitureItem = {
+                  ...item,
+                  position: [
+                    item.position[0] - geometry.plotWidth / 2,
+                    item.position[1] - geometry.plotDepth / 2,
+                    0,
+                  ],
+                };
+                return (
+                  <FurniturePiece
+                    key={item.id}
+                    item={worldItem}
+                    floorBaseY={floorY}
+                    isSelected={selectedFurnitureId === item.id}
+                    onSelect={onSelectFurniture}
+                    units={plan.units}
+                  />
+                );
+              })}
+            </group>
+          );
+        })}
 
       {/* Walls */}
       {geometry.walls.map((wall) => {
@@ -491,11 +551,18 @@ function CameraRig({
   );
 }
 
-function RendererBridge({ rendererRef }: { rendererRef: React.MutableRefObject<WebGLRenderer | null> }) {
-  const { gl } = useThree();
+function RendererBridge({
+  rendererRef,
+  sceneRef,
+}: {
+  rendererRef: React.MutableRefObject<WebGLRenderer | null>;
+  sceneRef: React.MutableRefObject<Scene | null>;
+}) {
+  const { gl, scene } = useThree();
   useEffect(() => {
     rendererRef.current = gl;
-  }, [gl, rendererRef]);
+    sceneRef.current = scene;
+  }, [gl, scene, rendererRef, sceneRef]);
   return null;
 }
 
@@ -509,6 +576,9 @@ type HouseSceneProps = {
   topLevel?: number;
   selectedRoomId?: string | null;
   onSelectRoom?: (id: string | null) => void;
+  showFurniture?: boolean;
+  selectedFurnitureId?: string | null;
+  onSelectFurniture?: (id: string | null) => void;
   /** Optional set of floor indices to hide (they remain in the plan, just not rendered). */
   hiddenLevels?: ReadonlySet<number>;
   /** Architectural style theme to apply. Defaults to 'modern'. */
@@ -529,6 +599,12 @@ type HouseSceneProps = {
     touchLookX: number;
     touchLookY: number;
   };
+  terraceConfig?: TerraceConfig;
+  exteriorConfig?: ExteriorConfig;
+  selectedTerraceObjectId?: string | null;
+  onSelectTerraceObject?: (id: string | null) => void;
+  /** Live 3D sun direction vector from solar geometry */
+  sunPosition?: [number, number, number];
 };
 
 export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function HouseScene(
@@ -542,8 +618,12 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
     topLevel,
     selectedRoomId = null,
     onSelectRoom,
+    showFurniture = true,
+    selectedFurnitureId = null,
+    onSelectFurniture,
     hiddenLevels,
     styleTheme = "modern",
+    sunPosition,
     walkthroughMode = false,
     isFirstPerson = false,
     onToggleFirstPerson,
@@ -554,6 +634,10 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
     walkthroughTargetFloor,
     onClearWalkthroughTargetFloor,
     mobileWalkthroughInputs,
+    terraceConfig,
+    exteriorConfig,
+    selectedTerraceObjectId = null,
+    onSelectTerraceObject,
   },
   ref
 ) {
@@ -563,6 +647,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
   const span = Math.max(geometry.plotWidth, geometry.plotDepth);
   const ft = plan.units === "m" ? 0.3048 : 1;
   const rendererRef = useRef<WebGLRenderer | null>(null);
+  const threeSceneRef = useRef<Scene | null>(null);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const [resetToken, setResetToken] = useState(0);
   const theme = STYLE_THEMES[styleTheme] ?? STYLE_THEMES.modern;
@@ -571,6 +656,8 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
     ref,
     () => ({
       captureScreenshot: () => rendererRef.current?.domElement.toDataURL("image/png") ?? null,
+      getRenderer: () => rendererRef.current,
+      getScene: () => threeSceneRef.current,
       fitToView: () => setResetToken((c) => c + 1),
       resetCamera: () => setResetToken((c) => c + 1),
       zoomIn: () => {
@@ -608,8 +695,26 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
         camera.lookAt(roomTarget);
         controls.update();
       },
+      viewTerrace: () => {
+        const controls = controlsRef.current;
+        if (!controls) return;
+        const topFloors = geometry.floors.filter((f) => f.level === geometry.levelCount - 1);
+        const maxWallTop = geometry.walls.reduce((mx, w) => Math.max(mx, w.baseY + w.height), 0);
+        const roofY = maxWallTop + geometry.wallHeight * 0.035;
+        let cX = 0, cZ = 0;
+        if (topFloors.length > 0) {
+          cX = topFloors.reduce((s, f) => s + f.centerX, 0) / topFloors.length;
+          cZ = topFloors.reduce((s, f) => s + f.centerZ, 0) / topFloors.length;
+        }
+        const terraceTarget = new Vector3(cX, roofY + 1.2, cZ);
+        controls.target.copy(terraceTarget);
+        const camDist = Math.max(geometry.plotWidth, geometry.plotDepth) * 0.72;
+        controls.object.position.set(cX, roofY + camDist * 0.85, cZ + camDist * 0.72);
+        controls.object.lookAt(terraceTarget);
+        controls.update();
+      },
     }),
-    [framing.far, geometry.floors, geometry.wallHeight]
+    [framing.far, geometry.floors, geometry.wallHeight, geometry.levelCount, geometry.walls, geometry.plotWidth, geometry.plotDepth]
   );
 
   return (
@@ -626,7 +731,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
 
       {/* Primary sun light */}
       <directionalLight
-        position={[span * 0.75, span * 1.15, span * 0.55]}
+        position={sunPosition ?? [span * 0.75, span * 1.15, span * 0.55]}
         intensity={theme.sunIntensity}
         color="#FFF9F0"
         castShadow
@@ -676,6 +781,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
 
       {/* House geometry */}
       <GeneratedHouse
+        plan={plan}
         geometry={geometry}
         cutHeight={cutaway ? topElevation + 4.5 * ft : null}
         showRoof={showRoof}
@@ -683,6 +789,19 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
         selectedRoomId={selectedRoomId}
         onSelectRoom={onSelectRoom}
         theme={theme}
+        showFurniture={showFurniture}
+        selectedFurnitureId={selectedFurnitureId}
+        onSelectFurniture={onSelectFurniture}
+      />
+
+      {/* Rooftop Terrace & Exterior Designer Architecture */}
+      <TerraceExteriorGeometry
+        geometry={geometry}
+        terraceConfig={terraceConfig}
+        exteriorConfig={exteriorConfig}
+        showRoof={showRoof}
+        selectedObjectId={selectedTerraceObjectId}
+        onSelectObject={onSelectTerraceObject}
       />
 
       {/* 3D Walkthrough Character, Camera & Interior lighting */}
@@ -707,7 +826,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
         controlsRef={controlsRef}
         walkthroughMode={walkthroughMode}
       />
-      <RendererBridge rendererRef={rendererRef} />
+      <RendererBridge rendererRef={rendererRef} sceneRef={threeSceneRef} />
     </Canvas>
   );
 });
