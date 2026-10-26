@@ -125,3 +125,16 @@ describe("Architectural Layouts Engine", () => {
     expect(loungeTopRooms).toContain("Enclosed Glass Sky Lounge");
   });
 });
+
+describe("layout suggestions", () => {
+  it("are structurally distinct and contain no Vastu content", async () => {
+    const { ARCHITECTURAL_DESIGNS, generateArchitecturalPlan } = await import("../architectural-layouts");
+    const sigs = new Set<string>();
+    for (const id of Object.keys(ARCHITECTURAL_DESIGNS) as (keyof typeof ARCHITECTURAL_DESIGNS)[]) {
+      expect(JSON.stringify(ARCHITECTURAL_DESIGNS[id])).not.toMatch(/vastu/i);
+      const { plan } = generateArchitecturalPlan({ designId: id, plotWidth: 40, plotLength: 60, floors: 1 });
+      sigs.add(JSON.stringify(plan.levels[0].rooms.map((r) => [r.type, r.polygon])));
+    }
+    expect(sigs.size).toBe(Object.keys(ARCHITECTURAL_DESIGNS).length);
+  });
+});

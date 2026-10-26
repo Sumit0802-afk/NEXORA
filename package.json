@@ -7,6 +7,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:web": "npm --workspace apps/web run dev",
     "lint": "npm --workspace apps/web run lint",
-    "typecheck": "npm --workspace apps/web run typecheck"
+    "typecheck": "npm --workspace apps/web run typecheck",
+    "theme:build": "node scripts/gen-dark-theme.mjs"
   }
 }

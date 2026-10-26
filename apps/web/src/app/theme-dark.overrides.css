@@ -1,0 +1,7 @@
+/* Hand-written dark-theme adjustments that the generator cannot infer. Loaded after theme-dark.css. */
+html[data-theme="dark"] .blob { opacity: 0.5; }
+html[data-theme="dark"] .auth-bg::after { opacity: 0.16; }
+html[data-theme="dark"] .theme-icon-btn { color: #cfc9f5; background: rgba(28, 25, 41, 0.85); border-color: #2c2840; }
+html[data-theme="dark"] img.auth-wordmark { filter: brightness(0) invert(1); }
+html[data-theme="dark"] .acct-wordmark,
+html[data-theme="dark"] .wordmark-text { filter: brightness(0) invert(1); }

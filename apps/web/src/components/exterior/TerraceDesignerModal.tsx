@@ -1,6 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
+import { TerraceLayoutEditor } from "./TerraceLayoutEditor";
+import { TerraceArt, type TerraceArtKind } from "./TerraceArt";
+import { CARD_PHOTOS, LAYOUT_PHOTOS, TERRACE_PHOTOS, terracePhotoSrc } from "@/lib/terrace-photos";
+import { Armchair, Bookmark, Images, Building2, Check, Home, LayoutGrid, Redo2, RotateCcw, ShieldCheck, Telescope, Undo2, Warehouse, X } from "lucide-react";
 import type { FloorPlan, Room } from "@houseplan/design-schema";
 import {
   type TerraceConfig,
@@ -48,7 +52,22 @@ interface TerraceDesignerModalProps {
   canRedo?: boolean;
 }
 
-type TabKey = "layouts" | "structure" | "exterior" | "furniture" | "variations";
+type TabKey = "layouts" | "editor" | "gallery" | "structure" | "exterior" | "furniture" | "variations";
+
+function CardMedia({ kind, label }: { kind: TerraceArtKind; label: string }) {
+  const layoutId = kind.startsWith("layout:") ? kind.slice(7) : null;
+  const photo = CARD_PHOTOS[kind] ?? (layoutId && LAYOUT_PHOTOS[layoutId] ? TERRACE_PHOTOS.find((p) => p.id === LAYOUT_PHOTOS[layoutId]) : undefined);
+  if (!photo) return <TerraceArt kind={kind} label={label} />;
+  return (
+    <figure className="tdm-media">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img className="tdm-photo" src={terracePhotoSrc(photo.id)} alt={label} loading="lazy" width={photo.width} height={photo.height} />
+      <span className="tdm-credit" title={`${photo.caption} (${photo.source})`}>
+        Photo: {photo.author} · {photo.license}
+      </span>
+    </figure>
+  );
+}
 
 export function TerraceDesignerModal({
   isOpen,
@@ -171,701 +190,346 @@ export function TerraceDesignerModal({
     handleApplyLayout("open");
   };
 
+  const tabs: { id: TabKey; label: string; icon: React.ReactNode }[] = [
+    { id: "layouts", label: "Terrace Layouts", icon: <LayoutGrid size={14} /> },
+    { id: "editor", label: "Edit Terrace", icon: <Armchair size={14} /> },
+    { id: "gallery", label: "Inspiration", icon: <Images size={14} /> },
+    { id: "structure", label: "Structure & Railings", icon: <ShieldCheck size={14} /> },
+    { id: "exterior", label: "Facade & Estate", icon: <Building2 size={14} /> },
+    { id: "furniture", label: "Outdoor Decor", icon: <Armchair size={14} /> },
+    { id: "variations", label: "Save & Compare", icon: <Bookmark size={14} /> },
+  ];
+
+  const setTerrace = (patch: Partial<TerraceConfig>) => onUpdateTerraceConfig({ ...terraceConfig, ...patch });
+  const setExterior = (patch: Partial<ExteriorConfig>) => onUpdateExteriorConfig({ ...exteriorConfig, ...patch });
+
+  const exteriorToggles: { key: keyof ExteriorConfig; title: string; hint: string }[] = [
+    { key: "hasEntrancePortico", title: "Entrance Portico & Canopy", hint: "Drop-off porch with columns" },
+    { key: "hasBoundaryWall", title: "Front Boundary Wall", hint: "Perimeter privacy wall with coping" },
+    { key: "hasMainGate", title: "Main Gate & Pillars", hint: "Driveway sliding gate with lanterns" },
+    { key: "hasDrivewayPavers", title: "Driveway Stone Pavers", hint: "Paved entrance and parking slab" },
+    { key: "hasFrontGarden", title: "Front Landscaping Lawn", hint: "Setback grass with trees" },
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-5xl h-[88vh] bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
-        {/* Header Bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/70">
-          <div className="flex items-center gap-3">
-            <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-indigo-600 text-white text-xl shadow-lg">
-              🏛️
-            </span>
+    <div className="tdm-overlay" role="dialog" aria-modal="true" aria-label="Terrace & Exterior Designer">
+      <div className="tdm">
+        <header className="tdm-header">
+          <div className="tdm-title">
+            <span className="tdm-title-icon"><Warehouse size={20} /></span>
             <div>
-              <h2 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
-                Terrace & Exterior Designer
-                <span className="px-2 py-0.5 text-xs font-semibold uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full">
-                  3D Studio
-                </span>
-              </h2>
-              <p className="text-xs text-slate-400">
-                Architectural rooftop structures, railings, outdoor furniture & estate facade styling
-              </p>
+              <h2>Terrace & Exterior Designer</h2>
+              <p>Rooftop structures, railings, outdoor furniture and facade styling</p>
             </div>
           </div>
-
-          {/* Quick Actions in Header */}
-          <div className="flex items-center gap-2">
+          <div className="tdm-actions">
             {onViewTerrace && (
-              <button
-                type="button"
-                onClick={onViewTerrace}
-                className="px-3.5 py-1.5 text-xs font-medium text-amber-300 bg-amber-500/15 border border-amber-500/40 hover:bg-amber-500/25 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-                title="Orient 3D camera onto the rooftop terrace"
-              >
-                🔭 <span>View Terrace</span>
+              <button type="button" className="button outline small" onClick={onViewTerrace} title="Orient the 3D camera onto the rooftop terrace">
+                <Telescope size={13} /> View Terrace
               </button>
             )}
-
             {onUndo && (
-              <button
-                type="button"
-                onClick={onUndo}
-                disabled={!canUndo}
-                className="px-2.5 py-1.5 text-xs text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
-                title="Undo edit"
-              >
-                ↩️ Undo
+              <button type="button" className="button outline icon-btn" onClick={onUndo} disabled={!canUndo} title="Undo">
+                <Undo2 size={13} />
               </button>
             )}
-
             {onRedo && (
-              <button
-                type="button"
-                onClick={onRedo}
-                disabled={!canRedo}
-                className="px-2.5 py-1.5 text-xs text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
-                title="Redo edit"
-              >
-                ↪️ Redo
+              <button type="button" className="button outline icon-btn" onClick={onRedo} disabled={!canRedo} title="Redo">
+                <Redo2 size={13} />
               </button>
             )}
-
-            <button
-              type="button"
-              onClick={handleResetToDefault}
-              className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors"
-              title="Reset terrace and facade to clean defaults"
-            >
-              ↺ Reset
+            <button type="button" className="button outline small" onClick={handleResetToDefault} title="Reset terrace and facade to defaults">
+              <RotateCcw size={13} /> Reset
             </button>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 border border-slate-700 transition-colors ml-1"
-            >
-              ✕
+            <button type="button" className="interior-close-btn" onClick={onClose} aria-label="Close">
+              <X size={18} />
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* Tab Navigation */}
-        <div className="flex border-b border-slate-800 bg-slate-900/90 px-6 gap-2">
-          {(
-            [
-              { id: "layouts", label: "Terrace Layouts (9)", icon: "📐" },
-              { id: "structure", label: "Rooftop Structure & Railings", icon: "🛡️" },
-              { id: "exterior", label: "Exterior Facade & Estate", icon: "🏡" },
-              { id: "furniture", label: "Outdoor Staging & Decor", icon: "🛋️" },
-              { id: "variations", label: "Save & Compare Variations", icon: "📑" },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 py-3 px-3.5 text-xs font-medium border-b-2 transition-all ${
-                activeTab === tab.id
-                  ? "border-amber-400 text-amber-300 bg-amber-400/5 font-semibold"
-                  : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-              }`}
-            >
-              <span>{tab.icon}</span>
+        <nav className="tdm-tabs">
+          {tabs.map((tab) => (
+            <button key={tab.id} type="button" className={`tdm-tab${activeTab === tab.id ? " active" : ""}`} onClick={() => setActiveTab(tab.id)}>
+              {tab.icon}
               <span>{tab.label}</span>
             </button>
           ))}
-        </div>
+        </nav>
 
-        {/* Main Content Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* TAB 1: 9 TERRACE LAYOUTS */}
+        <div className="tdm-body">
           {activeTab === "layouts" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">Selectable Terrace Layouts</h3>
-                  <p className="text-xs text-slate-400">
-                    Each layout creates a genuinely different architectural rooftop space and geometry in the 3D model.
-                  </p>
-                </div>
-                <span className="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                  Active: <strong className="text-amber-300">{terraceConfig.layoutId}</strong>
-                </span>
+            <section>
+              <div className="tdm-section-head">
+                <h3>Terrace Layouts</h3>
+                <p>Each layout rebuilds the rooftop rooms and geometry in the 3D model.</p>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="tdm-grid tdm-grid-3">
                 {TERRACE_DESIGNS_LIST.map((design) => {
                   const isSelected = terraceConfig.layoutId === design.id;
                   return (
-                    <div
-                      key={design.id}
-                      onClick={() => handleApplyLayout(design.id)}
-                      className={`relative p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                        isSelected
-                          ? "bg-gradient-to-b from-indigo-950/60 to-slate-900 border-amber-400 shadow-lg shadow-indigo-950/50 ring-1 ring-amber-400"
-                          : "bg-slate-800/40 border-slate-700/60 hover:bg-slate-800/80 hover:border-slate-600"
-                      }`}
-                    >
+                    <div key={design.id} className={`tdm-card tdm-has-art${isSelected ? " selected" : ""}`}>
+                      <CardMedia kind={`layout:${design.id}`} label={`${design.name} example`} />
                       <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                            {isSelected && <span className="text-amber-400">✓</span>}
-                            {design.name}
-                          </h4>
-                          <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                            {design.tagline}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-300 leading-relaxed mb-3">{design.description}</p>
-                        <div className="flex flex-wrap gap-1.5 mb-2">
-                          {design.features.map((feat, i) => (
-                            <span
-                              key={i}
-                              className="text-[10px] px-2 py-0.5 rounded bg-slate-900/80 text-slate-300 border border-slate-800"
-                            >
-                              • {feat}
-                            </span>
+                        <h4>{isSelected && <Check size={14} />} {design.name}</h4>
+                        <div className="tdm-card-tag">{design.tagline}</div>
+                        <p className="tdm-card-desc">{design.description}</p>
+                        <ul className="tdm-chips">
+                          {design.features.map((feat) => (
+                            <li key={feat}>{feat}</li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
-
-                      <div className="mt-3 pt-3 border-t border-slate-700/50 flex items-center justify-between">
-                        <span className="text-[11px] text-slate-400">Architectural geometry</span>
+                      <div className="tdm-card-foot">
                         <button
                           type="button"
-                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                            isSelected
-                              ? "bg-amber-400 text-slate-950"
-                              : "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                          }`}
+                          className={`button small${isSelected ? " primary" : " outline"}`}
+                          onClick={() => handleApplyLayout(design.id)}
+                          disabled={isSelected}
                         >
-                          {isSelected ? "Applied to 3D" : "Apply Layout"}
+                          {isSelected ? "Applied" : "Apply Layout"}
                         </button>
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* TAB 2: STRUCTURE & RAILINGS */}
+          {activeTab === "editor" && <TerraceLayoutEditor plan={plan} onUpdatePlan={onUpdatePlan} />}
+
+          {activeTab === "gallery" && (
+            <section>
+              <div className="tdm-section-head">
+                <h3>Terrace Inspiration</h3>
+                <p>Real rooftop terraces and roof gardens for reference. Pick a matching layout under Terrace Layouts to build it in 3D.</p>
+              </div>
+              <div className="tdm-gallery">
+                {TERRACE_PHOTOS.map((ph) => (
+                  <figure key={ph.id} className="tdm-figure">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={terracePhotoSrc(ph.id)} alt={ph.caption} loading="lazy" width={ph.width} height={ph.height} />
+                    <figcaption>
+                      <strong>{ph.caption}</strong>
+                      <a href={ph.source} target="_blank" rel="noopener noreferrer">{ph.author} · {ph.license}</a>
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+            </section>
+          )}
+
           {activeTab === "structure" && (
-            <div className="space-y-6">
-              {/* Railing Style */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <span>🛡️</span> Terrace Perimeter Railing & Parapet
-                  </h3>
-                  <span className="text-xs text-slate-400">Enforces structural safety & aesthetics</span>
+            <section className="tdm-stack">
+              <div>
+                <div className="tdm-section-head">
+                  <h3>Perimeter Railing & Parapet</h3>
+                  <p>Safety and look of the terrace edge</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="tdm-grid tdm-grid-5">
                   {RAILING_STYLES.map((style) => {
                     const isSelected = terraceConfig.railingStyle === style.id;
                     return (
-                      <button
-                        key={style.id}
-                        type="button"
-                        onClick={() => onUpdateTerraceConfig({ ...terraceConfig, railingStyle: style.id })}
-                        className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all ${
-                          isSelected
-                            ? "bg-indigo-950/70 border-amber-400 shadow-md ring-1 ring-amber-400"
-                            : "bg-slate-800/40 border-slate-700/60 hover:bg-slate-800"
-                        }`}
-                      >
-                        <div>
-                          <div
-                            className="w-full h-8 rounded-md mb-2 flex items-center justify-center border border-white/10"
-                            style={{ backgroundColor: style.color, opacity: style.opacity }}
-                          >
-                            <span className="text-[10px] font-bold text-slate-900 drop-shadow-sm">
-                              {style.id.toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="text-xs font-bold text-white mb-1">{style.name}</div>
-                          <p className="text-[11px] text-slate-400 leading-tight">{style.description}</p>
-                        </div>
-                        <div className="mt-2 text-right">
-                          <span
-                            className={`text-[10px] font-semibold ${
-                              isSelected ? "text-amber-400" : "text-slate-500"
-                            }`}
-                          >
-                            {isSelected ? "Active Railing" : "Select"}
-                          </span>
-                        </div>
+                      <button key={style.id} type="button" className={`tdm-card tdm-option tdm-has-art${isSelected ? " selected" : ""}`} onClick={() => setTerrace({ railingStyle: style.id })} aria-pressed={isSelected}>
+                        <CardMedia kind={`rail:${style.id}`} label={`${style.name} example`} />
+                        <strong>{style.name}</strong>
+                        <small>{style.description}</small>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Shading Structure */}
-              <div className="space-y-3 pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <span>⛺</span> Overhead Shading & Shelter Structure
-                  </h3>
-                  <span className="text-xs text-slate-400">Canopies, pergolas, solar racks and gazebos</span>
+              <div>
+                <div className="tdm-section-head">
+                  <h3>Shading & Shelter</h3>
+                  <p>Canopies, pergolas, solar racks and gazebos</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="tdm-grid tdm-grid-3">
                   {SHADING_STRUCTURES.map((shade) => {
                     const isSelected = terraceConfig.shadeStructure === shade.id;
                     return (
-                      <button
-                        key={shade.id}
-                        type="button"
-                        onClick={() => onUpdateTerraceConfig({ ...terraceConfig, shadeStructure: shade.id })}
-                        className={`p-3.5 rounded-xl border text-left transition-all ${
-                          isSelected
-                            ? "bg-indigo-950/70 border-amber-400 shadow-md ring-1 ring-amber-400"
-                            : "bg-slate-800/40 border-slate-700/60 hover:bg-slate-800"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-bold text-white">{shade.name}</span>
-                          {isSelected && <span className="text-xs text-amber-400">✓</span>}
-                        </div>
-                        <div className="text-[10px] text-amber-300/80 mb-1 font-medium">{shade.tagline}</div>
-                        <p className="text-[11px] text-slate-400">{shade.description}</p>
+                      <button key={shade.id} type="button" className={`tdm-card tdm-option tdm-has-art${isSelected ? " selected" : ""}`} onClick={() => setTerrace({ shadeStructure: shade.id })} aria-pressed={isSelected}>
+                        <CardMedia kind={`shade:${shade.id}`} label={`${shade.name} example`} />
+                        <strong>{isSelected && <Check size={13} />} {shade.name}</strong>
+                        <span className="tdm-card-tag">{shade.tagline}</span>
+                        <small>{shade.description}</small>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Flooring & Mumty Enclosure Settings */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-800">
-                {/* Flooring Selector */}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-white block">
-                    Terrace Flooring Material
-                  </label>
-                  <select
-                    value={terraceConfig.flooring}
-                    onChange={(e) =>
-                      onUpdateTerraceConfig({
-                        ...terraceConfig,
-                        flooring: e.target.value as TerraceFlooring,
-                      })
-                    }
-                    className="w-full px-3 py-2 text-xs rounded-lg bg-slate-800 border border-slate-700 text-white focus:outline-none focus:border-amber-400"
-                  >
+              <div className="tdm-grid tdm-grid-3 tdm-settings">
+                <div className="tdm-field">
+                  <label htmlFor="tdm-flooring">Terrace Flooring</label>
+                  <select id="tdm-flooring" value={terraceConfig.flooring} onChange={(e) => setTerrace({ flooring: e.target.value as TerraceFlooring })}>
                     {TERRACE_FLOOR_OPTIONS.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name}
-                      </option>
+                      <option key={f.id} value={f.id}>{f.name}</option>
                     ))}
                   </select>
-                  <p className="text-[11px] text-slate-400">
-                    High-durability outdoor waterproof pavers, teak, or lush turf.
-                  </p>
+                  <small>Waterproof pavers, teak or turf.</small>
                 </div>
 
-                {/* Parapet Height */}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-white block">
-                    Parapet Wall Height: <span className="text-amber-400">{terraceConfig.parapetHeight} ft</span>
-                  </label>
-                  <div className="flex gap-2">
+                <div className="tdm-field">
+                  <label>Parapet Height: <strong>{terraceConfig.parapetHeight} ft</strong></label>
+                  <div className="tdm-seg">
                     {[3.0, 3.5, 4.0, 4.5].map((h) => (
-                      <button
-                        key={h}
-                        type="button"
-                        onClick={() => onUpdateTerraceConfig({ ...terraceConfig, parapetHeight: h })}
-                        className={`flex-1 py-1.5 text-xs rounded-lg border font-medium transition-colors ${
-                          terraceConfig.parapetHeight === h
-                            ? "bg-amber-400 text-slate-950 border-amber-400 font-bold"
-                            : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
-                        }`}
-                      >
+                      <button key={h} type="button" className={terraceConfig.parapetHeight === h ? "active" : ""} onClick={() => setTerrace({ parapetHeight: h })}>
                         {h} ft
                       </button>
                     ))}
                   </div>
-                  <p className="text-[11px] text-slate-400">Standard residential building code is 3.5 - 4.0 ft.</p>
+                  <small>Residential code is typically 3.5 – 4.0 ft.</small>
                 </div>
 
-                {/* Staircase Mumty & Lighting */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/60 border border-slate-700">
-                    <div>
-                      <span className="text-xs font-semibold text-white block">Staircase Mumty Headhouse</span>
-                      <span className="text-[10px] text-slate-400">Weather-tight cabin & roof access door</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={terraceConfig.hasMumty}
-                      onChange={(e) =>
-                        onUpdateTerraceConfig({ ...terraceConfig, hasMumty: e.target.checked })
-                      }
-                      className="w-4 h-4 text-amber-500 rounded bg-slate-700 border-slate-600 focus:ring-amber-400"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/60 border border-slate-700">
-                    <div>
-                      <span className="text-xs font-semibold text-white block">Outdoor Lighting</span>
-                      <span className="text-[10px] text-slate-400">Solar bollards and ambient perimeter LEDs</span>
-                    </div>
-                    <select
-                      value={terraceConfig.outdoorLighting}
-                      onChange={(e) =>
-                        onUpdateTerraceConfig({
-                          ...terraceConfig,
-                          outdoorLighting: e.target.value as any,
-                        })
-                      }
-                      className="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-white"
-                    >
+                <div className="tdm-field">
+                  <label className="tdm-toggle">
+                    <span><strong>Staircase Headhouse</strong><small>Weather-tight roof access cabin</small></span>
+                    <input type="checkbox" checked={terraceConfig.hasMumty} onChange={(e) => setTerrace({ hasMumty: e.target.checked })} />
+                  </label>
+                  <label className="tdm-toggle">
+                    <span><strong>Outdoor Lighting</strong></span>
+                    <select value={terraceConfig.outdoorLighting} onChange={(e) => setTerrace({ outdoorLighting: e.target.value as TerraceConfig["outdoorLighting"] })}>
                       <option value="solar_bollards">Solar Bollards</option>
                       <option value="perimeter_led">Perimeter LED</option>
                       <option value="warm_sconces">Warm Sconces</option>
                       <option value="festoon">Festoon Lights</option>
                     </select>
-                  </div>
+                  </label>
                 </div>
               </div>
-            </div>
+            </section>
           )}
 
-          {/* TAB 3: EXTERIOR & FACADE */}
           {activeTab === "exterior" && (
-            <div className="space-y-6">
-              {/* Facade Preset */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <span>🏛️</span> Architectural Exterior & Facade Presets
-                  </h3>
-                  <span className="text-xs text-slate-400">
-                    Alters architectural volumes, entry portico, and facade accents
-                  </span>
+            <section className="tdm-stack">
+              <div>
+                <div className="tdm-section-head">
+                  <h3>Facade Presets</h3>
+                  <p>Changes volumes, entry portico and facade accents</p>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="tdm-grid tdm-grid-3">
                   {FACADE_PRESETS.map((preset) => {
                     const isSelected = exteriorConfig.facadeStyle === preset.id;
                     return (
                       <button
                         key={preset.id}
                         type="button"
+                        aria-pressed={isSelected}
+                        className={`tdm-card tdm-option tdm-has-art${isSelected ? " selected" : ""}`}
                         onClick={() =>
-                          onUpdateExteriorConfig({
-                            ...exteriorConfig,
-                            facadeStyle: preset.id,
+                          setExterior({
+                            facadeStyle: preset.id as FacadeStyleId,
                             balconyRailing:
-                              preset.id === "traditional_indian"
-                                ? "jali"
-                                : preset.id === "luxury"
-                                ? "glass"
-                                : exteriorConfig.balconyRailing,
+                              preset.id === "traditional_indian" ? "jali" : preset.id === "luxury" ? "glass" : exteriorConfig.balconyRailing,
                           })
                         }
-                        className={`p-3.5 rounded-xl border text-left transition-all ${
-                          isSelected
-                            ? "bg-indigo-950/70 border-amber-400 shadow-md ring-1 ring-amber-400"
-                            : "bg-slate-800/40 border-slate-700/60 hover:bg-slate-800"
-                        }`}
                       >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-bold text-white">{preset.name}</span>
-                          <span
-                            className="w-3 h-3 rounded-full border border-white/20"
-                            style={{ backgroundColor: preset.accentColor }}
-                          />
-                        </div>
-                        <div className="text-[10px] text-amber-300/80 mb-1 font-medium">{preset.tagline}</div>
-                        <p className="text-[11px] text-slate-400 mb-2">{preset.description}</p>
-                        <div className="text-[10px] px-2 py-0.5 rounded bg-slate-900 text-slate-300 inline-block border border-slate-800">
-                          {preset.cladding}
-                        </div>
+                        <CardMedia kind={`facade:${preset.id}`} label={`${preset.name} example`} />
+                        <strong>
+                          {isSelected && <Check size={13} />} {preset.name}
+                          <span className="tdm-dot" style={{ backgroundColor: preset.accentColor }} />
+                        </strong>
+                        <span className="tdm-card-tag">{preset.tagline}</span>
+                        <small>{preset.description}</small>
+                        <em className="tdm-pill">{preset.cladding}</em>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Site Landscaping & Front Entrance Features */}
-              <div className="space-y-3 pt-4 border-t border-slate-800">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <span>🏡</span> Front Entrance, Site & Landscaping Features
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {/* Entrance Portico */}
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
-                    <div>
-                      <span className="text-xs font-semibold text-white block">Entrance Portico & Canopy</span>
-                      <span className="text-[10px] text-slate-400">Architectural drop-off porch with columns</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={exteriorConfig.hasEntrancePortico}
-                      onChange={(e) =>
-                        onUpdateExteriorConfig({
-                          ...exteriorConfig,
-                          hasEntrancePortico: e.target.checked,
-                        })
-                      }
-                      className="w-4 h-4 text-amber-500 rounded bg-slate-700 border-slate-600 focus:ring-amber-400"
-                    />
-                  </label>
-
-                  {/* Boundary Wall */}
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
-                    <div>
-                      <span className="text-xs font-semibold text-white block">Front Boundary Wall</span>
-                      <span className="text-[10px] text-slate-400">Perimeter privacy wall with coping</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={exteriorConfig.hasBoundaryWall}
-                      onChange={(e) =>
-                        onUpdateExteriorConfig({
-                          ...exteriorConfig,
-                          hasBoundaryWall: e.target.checked,
-                        })
-                      }
-                      className="w-4 h-4 text-amber-500 rounded bg-slate-700 border-slate-600 focus:ring-amber-400"
-                    />
-                  </label>
-
-                  {/* Main Gate */}
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
-                    <div>
-                      <span className="text-xs font-semibold text-white block">Main Gate & Gate Pillars</span>
-                      <span className="text-[10px] text-slate-400">Driveway sliding gate with lanterns</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={exteriorConfig.hasMainGate}
-                      onChange={(e) =>
-                        onUpdateExteriorConfig({
-                          ...exteriorConfig,
-                          hasMainGate: e.target.checked,
-                        })
-                      }
-                      className="w-4 h-4 text-amber-500 rounded bg-slate-700 border-slate-600 focus:ring-amber-400"
-                    />
-                  </label>
-
-                  {/* Driveway Pavers */}
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
-                    <div>
-                      <span className="text-xs font-semibold text-white block">Driveway Stone Pavers</span>
-                      <span className="text-[10px] text-slate-400">Paved entrance driveway & parking slab</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={exteriorConfig.hasDrivewayPavers}
-                      onChange={(e) =>
-                        onUpdateExteriorConfig({
-                          ...exteriorConfig,
-                          hasDrivewayPavers: e.target.checked,
-                        })
-                      }
-                      className="w-4 h-4 text-amber-500 rounded bg-slate-700 border-slate-600 focus:ring-amber-400"
-                    />
-                  </label>
-
-                  {/* Front Garden */}
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
-                    <div>
-                      <span className="text-xs font-semibold text-white block">Front Landscaping Lawn</span>
-                      <span className="text-[10px] text-slate-400">Lush green setback grass with trees</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={exteriorConfig.hasFrontGarden}
-                      onChange={(e) =>
-                        onUpdateExteriorConfig({
-                          ...exteriorConfig,
-                          hasFrontGarden: e.target.checked,
-                        })
-                      }
-                      className="w-4 h-4 text-amber-500 rounded bg-slate-700 border-slate-600 focus:ring-amber-400"
-                    />
-                  </label>
-
-                  {/* Balcony Railing Style */}
-                  <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/60 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-semibold text-white block">Balcony Railings</span>
-                      <span className="text-[10px] text-slate-400">Matches floor balconies</span>
-                    </div>
-                    <select
-                      value={exteriorConfig.balconyRailing}
-                      onChange={(e) =>
-                        onUpdateExteriorConfig({
-                          ...exteriorConfig,
-                          balconyRailing: e.target.value as RailingStyle,
-                        })
-                      }
-                      className="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-white"
-                    >
+              <div>
+                <div className="tdm-section-head">
+                  <h3>Entrance, Site & Landscaping</h3>
+                </div>
+                <div className="tdm-grid tdm-grid-3">
+                  {exteriorToggles.map((t) => (
+                    <label key={t.key} className="tdm-toggle tdm-card">
+                      <span><strong>{t.title}</strong><small>{t.hint}</small></span>
+                      <input type="checkbox" checked={Boolean(exteriorConfig[t.key])} onChange={(e) => setExterior({ [t.key]: e.target.checked } as Partial<ExteriorConfig>)} />
+                    </label>
+                  ))}
+                  <label className="tdm-toggle tdm-card">
+                    <span><strong>Balcony Railings</strong><small>Matches floor balconies</small></span>
+                    <select value={exteriorConfig.balconyRailing} onChange={(e) => setExterior({ balconyRailing: e.target.value as RailingStyle })}>
                       <option value="glass">Frameless Glass</option>
                       <option value="metal_slats">Metal Slats</option>
                       <option value="jali">Terracotta Jali</option>
                       <option value="baluster">Cast Baluster</option>
                       <option value="solid_parapet">Solid Masonry</option>
                     </select>
-                  </div>
+                  </label>
                 </div>
               </div>
-            </div>
+            </section>
           )}
 
-          {/* TAB 4: FURNITURE & STAGING */}
           {activeTab === "furniture" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <span>🛋️</span> Rooftop & Outdoor Staging Catalog
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    High-end weatherproof outdoor furniture, planters, solar arrays, and barbecue islands.
-                  </p>
-                </div>
+            <section>
+              <div className="tdm-section-head">
+                <h3>Outdoor Staging Catalog</h3>
+                <p>Weatherproof furniture, planters, solar arrays and barbecue islands</p>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="tdm-grid tdm-grid-3">
                 {TERRACE_FURNITURE_CATALOG.map((item) => {
                   const isSelected = selectedFurniture === item.type;
                   return (
-                    <div
-                      key={item.type}
-                      onClick={() => setSelectedFurniture(item.type)}
-                      className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between ${
-                        isSelected
-                          ? "bg-indigo-950/70 border-amber-400 shadow-md ring-1 ring-amber-400"
-                          : "bg-slate-800/40 border-slate-700/60 hover:bg-slate-800"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs font-bold text-white">{item.name}</span>
-                          <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
-                            {item.category}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-300 leading-tight mb-2">{item.description}</p>
-                        <div className="text-[10px] text-slate-400">
-                          Dimensions: {item.dimensions.width}W × {item.dimensions.depth}D × {item.dimensions.height}H ft
-                        </div>
-                      </div>
-
-                      <div className="mt-3 pt-2.5 border-t border-slate-700/40 flex items-center justify-between">
-                        <span
-                          className="w-3.5 h-3.5 rounded-full border border-white/20"
-                          style={{ backgroundColor: item.defaultColor }}
-                        />
-                        <span className="text-xs font-medium text-amber-300">
-                          {isSelected ? "Selected" : "Select"}
-                        </span>
-                      </div>
-                    </div>
+                    <button key={item.type} type="button" aria-pressed={isSelected} className={`tdm-card tdm-option tdm-has-art${isSelected ? " selected" : ""}`} onClick={() => setSelectedFurniture(item.type)}>
+                      <CardMedia kind={`furn:${item.type}`} label={`${item.name} example`} />
+                      <strong>
+                        <span className="tdm-dot" style={{ backgroundColor: item.defaultColor }} /> {item.name}
+                      </strong>
+                      <span className="tdm-card-tag">{item.category}</span>
+                      <small>{item.description}</small>
+                      <em className="tdm-pill">{item.dimensions.width}W × {item.dimensions.depth}D × {item.dimensions.height}H ft</em>
+                    </button>
                   );
                 })}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* TAB 5: VARIATIONS */}
           {activeTab === "variations" && (
-            <div className="space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <span>📑</span> Saved Terrace & Facade Variations
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Compare multiple design schemes for the same house without losing interior furniture or layout data.
-                  </p>
-                </div>
+            <section className="tdm-stack">
+              <div className="tdm-section-head">
+                <h3>Saved Variations</h3>
+                <p>Compare terrace and facade schemes without touching interiors or layout.</p>
               </div>
-
-              {/* Create New Variation */}
-              <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/80 flex items-center gap-3">
-                <input
-                  type="text"
-                  placeholder="Enter variation name (e.g., Summer Garden Pavilion, Modern Solar Rooftop)..."
-                  value={newVarName}
-                  onChange={(e) => setNewVarName(e.target.value)}
-                  className="flex-1 px-3 py-2 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveVariation}
-                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-amber-400 text-slate-950 hover:bg-amber-300 transition-colors shadow-sm"
-                >
-                  Save Current Design
-                </button>
+              <div className="tdm-save-row">
+                <input type="text" placeholder="Variation name, e.g. Summer Garden Pavilion" value={newVarName} onChange={(e) => setNewVarName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSaveVariation()} />
+                <button type="button" className="button primary" onClick={handleSaveVariation}>Save Current Design</button>
               </div>
-
-              {/* Variations List */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="tdm-grid tdm-grid-2">
                 {variations.map((v) => (
-                  <div
-                    key={v.id}
-                    className="p-4 rounded-xl bg-slate-800/40 border border-slate-700 flex flex-col justify-between"
-                  >
+                  <div key={v.id} className="tdm-card">
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-bold text-white">{v.name}</span>
-                        <span className="text-[10px] text-slate-400">
-                          {new Date(v.timestamp).toLocaleDateString()}
-                        </span>
+                      <div className="tdm-card-head">
+                        <h4>{v.name}</h4>
+                        <small>{new Date(v.timestamp).toLocaleDateString()}</small>
                       </div>
-                      <div className="space-y-1 text-xs text-slate-300 mb-3">
-                        <div>
-                          • Layout: <strong className="text-amber-300">{v.terraceLayoutId}</strong>
-                        </div>
-                        <div>
-                          • Railing: <strong className="text-slate-200">{v.terraceConfig.railingStyle}</strong>
-                        </div>
-                        <div>
-                          • Shading: <strong className="text-slate-200">{v.terraceConfig.shadeStructure}</strong>
-                        </div>
-                        <div>
-                          • Facade: <strong className="text-slate-200">{v.exteriorConfig.facadeStyle}</strong>
-                        </div>
-                      </div>
+                      <dl className="tdm-facts">
+                        <dt>Layout</dt><dd>{v.terraceLayoutId}</dd>
+                        <dt>Railing</dt><dd>{v.terraceConfig.railingStyle}</dd>
+                        <dt>Shading</dt><dd>{v.terraceConfig.shadeStructure}</dd>
+                        <dt>Facade</dt><dd>{v.exteriorConfig.facadeStyle}</dd>
+                      </dl>
                     </div>
-
-                    <div className="pt-3 border-t border-slate-700/60 flex items-center justify-between">
-                      <span className="text-[11px] text-slate-400">Snapshot preserved</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRestoreVariation(v)}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
-                      >
-                        Restore Variation
-                      </button>
+                    <div className="tdm-card-foot">
+                      <button type="button" className="button outline small" onClick={() => handleRestoreVariation(v)}>Restore Variation</button>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           )}
         </div>
 
-        {/* Footer Bar */}
-        <div className="px-6 py-3.5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between">
-          <div className="text-xs text-slate-400 flex items-center gap-2">
-            <span>💡</span>
-            <span>All modifications update the 3D model immediately in real-time.</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors shadow-sm"
-            >
-              Done & Return to 3D View
-            </button>
-          </div>
-        </div>
+        <footer className="tdm-footer">
+          <span><Home size={13} /> Changes update the 3D model immediately.</span>
+          <button type="button" className="button primary" onClick={onClose}>Done</button>
+        </footer>
       </div>
     </div>
   );

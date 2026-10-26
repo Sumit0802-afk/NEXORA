@@ -7,12 +7,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import DesignVersion, Project
-from app.db.seed import DEMO_USER_ID, ensure_demo_user
+from app.api.deps import get_current_user
+from app.db.models import DesignVersion, Project, User
 from app.db.session import get_db
 from app.domain.geometry import validate_floor_plan
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+_Auth = Depends(get_current_user)
 
 
 class ProjectCreate(BaseModel):
@@ -90,9 +91,9 @@ def _room_count(design: dict[str, Any] | None) -> int:
     return sum(len(level.get("rooms", [])) for level in design.get("levels", []))
 
 
-def _get_owned_project(db: Session, project_id: UUID) -> Project:
+def _get_owned_project(db: Session, project_id: UUID, user: User) -> Project:
     project = db.get(Project, project_id)
-    if not project or project.owner_id != DEMO_USER_ID:
+    if not project or project.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
@@ -110,9 +111,8 @@ def _summarize(db: Session, project: Project) -> ProjectSummary:
 
 
 @router.post("", status_code=201)
-def create_project(payload: ProjectCreate, db: Session = Depends(get_db)) -> ProjectSummary:
-    ensure_demo_user(db)
-    project = Project(owner_id=DEMO_USER_ID, name=payload.name, units=payload.units, current_version=1)
+def create_project(payload: ProjectCreate, db: Session = Depends(get_db), user: User = _Auth) -> ProjectSummary:
+    project = Project(owner_id=user.id, name=payload.name, units=payload.units, current_version=1)
     db.add(project)
     db.flush()
 
@@ -125,24 +125,23 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)) -> Pro
 
 
 @router.get("")
-def list_projects(db: Session = Depends(get_db)) -> list[ProjectSummary]:
-    ensure_demo_user(db)
-    stmt = select(Project).where(Project.owner_id == DEMO_USER_ID).order_by(Project.updated_at.desc())
+def list_projects(db: Session = Depends(get_db), user: User = _Auth) -> list[ProjectSummary]:
+    stmt = select(Project).where(Project.owner_id == user.id).order_by(Project.updated_at.desc())
     projects = db.execute(stmt).scalars().all()
 
     return [_summarize(db, project) for project in projects]
 
 
 @router.get("/{project_id}")
-def get_project(project_id: UUID, db: Session = Depends(get_db)) -> ProjectDetail:
-    project = _get_owned_project(db, project_id)
+def get_project(project_id: UUID, db: Session = Depends(get_db), user: User = _Auth) -> ProjectDetail:
+    project = _get_owned_project(db, project_id, user)
     latest = _latest_version(db, project)
     return ProjectDetail.model_validate({**project.__dict__, "design": latest.design_json if latest else {}})
 
 
 @router.patch("/{project_id}")
-def rename_project(project_id: UUID, payload: ProjectRename, db: Session = Depends(get_db)) -> ProjectSummary:
-    project = _get_owned_project(db, project_id)
+def rename_project(project_id: UUID, payload: ProjectRename, db: Session = Depends(get_db), user: User = _Auth) -> ProjectSummary:
+    project = _get_owned_project(db, project_id, user)
     project.name = payload.name
     db.commit()
     db.refresh(project)
@@ -150,11 +149,11 @@ def rename_project(project_id: UUID, payload: ProjectRename, db: Session = Depen
 
 
 @router.post("/{project_id}/duplicate", status_code=201)
-def duplicate_project(project_id: UUID, db: Session = Depends(get_db)) -> ProjectSummary:
-    source = _get_owned_project(db, project_id)
+def duplicate_project(project_id: UUID, db: Session = Depends(get_db), user: User = _Auth) -> ProjectSummary:
+    source = _get_owned_project(db, project_id, user)
     latest = _latest_version(db, source)
 
-    copy = Project(owner_id=DEMO_USER_ID, name=f"{source.name} (copy)", units=source.units, current_version=1)
+    copy = Project(owner_id=user.id, name=f"{source.name} (copy)", units=source.units, current_version=1)
     db.add(copy)
     db.flush()
 
@@ -168,15 +167,15 @@ def duplicate_project(project_id: UUID, db: Session = Depends(get_db)) -> Projec
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project_id: UUID, db: Session = Depends(get_db)) -> None:
-    project = _get_owned_project(db, project_id)
+def delete_project(project_id: UUID, db: Session = Depends(get_db), user: User = _Auth) -> None:
+    project = _get_owned_project(db, project_id, user)
     db.delete(project)
     db.commit()
 
 
 @router.put("/{project_id}/design")
-def save_design(project_id: UUID, payload: dict[str, Any], db: Session = Depends(get_db)) -> dict[str, Any]:
-    project = _get_owned_project(db, project_id)
+def save_design(project_id: UUID, payload: dict[str, Any], db: Session = Depends(get_db), user: User = _Auth) -> dict[str, Any]:
+    project = _get_owned_project(db, project_id, user)
 
     issues = validate_floor_plan(payload)
     if issues:

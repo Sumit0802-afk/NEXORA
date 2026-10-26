@@ -506,7 +506,9 @@ def _assemble_level(c: Candidate, w: float, l: float, scale: float, index: int =
         for other in targets:
             seg = _shared_edge(c.rects[key], c.rects[other])
             if seg and _seg_len(seg) >= door_min:
-                add_opening("door", seg, DOOR_FT * scale, "interior")
+                # A door already cut into this shared wall serves both rooms; a second one would overlap it.
+                if not any(o["wallId"] == wall_for(seg, "interior") and o["kind"] == "door" for o in openings):
+                    add_opening("door", seg, DOOR_FT * scale, "interior")
                 has_door.add(key)
                 break
         else:

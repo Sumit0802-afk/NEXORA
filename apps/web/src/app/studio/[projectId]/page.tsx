@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Box,
+  Building2,
   Check,
   Clock,
   Copy,
@@ -18,9 +19,11 @@ import {
   EyeOff,
   FileText,
   Hand,
+  HelpCircle,
   History,
   Layers,
   Maximize2,
+  MessageSquare,
   Minus,
   MousePointer2,
   Paintbrush,
@@ -35,7 +38,7 @@ import {
   Split,
   Square,
   SquareSplitHorizontal,
-  SunMedium,
+  Tag,
   Trash2,
   Undo2,
   WandSparkles,
@@ -44,8 +47,12 @@ import {
 import type { FloorPlanMode, Selection } from "@/components/editor/FloorPlanCanvas";
 import { DesignWizardModal } from "@/components/plan/DesignWizardModal";
 import { InteriorDesignerModal } from "@/components/interior/InteriorDesignerModal";
-import { ArchitecturalAnalysisModal } from "@/components/analysis/ArchitecturalAnalysisModal";
 import { ExportModal } from "@/components/export/ExportModal";
+import { StructuralPlanningModal } from "@/components/structural/StructuralPlanningModal";
+import { FeedbackModal } from "@/components/feedback/FeedbackModal";
+import { VersionModal } from "@/components/common/VersionModal";
+import { StudioErrorBoundary } from "@/components/common/StudioErrorBoundary";
+import { NEXORA_VERSION } from "@/lib/telemetry";
 import { createProject, saveDesign } from "@/lib/api";
 import { usePlanContext } from "./plan-context";
 import { polygonArea, polygonPerimeter } from "@/lib/geometry";
@@ -131,11 +138,10 @@ export default function StudioPage({ params }: { params: { projectId: string } }
   const [selectedOpeningPreset, setSelectedOpeningPreset] = useState(3.0);
   const [selection, setSelection] = useState<Selection>(null);
   const [levelIndex, setLevelIndex] = useState(0);
-  const [split3d, setSplit3d] = useState(false);
-  const [cutaway3d, setCutaway3d] = useState(true);
   const [measureDistance, setMeasureDistance] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [showGrid, setShowGrid] = useState(true);
+  const [showRoomLabels, setShowRoomLabels] = useState(true);
   const [gridSize, setGridSize] = useState(0.5);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [handTool, setHandTool] = useState(false);
@@ -143,9 +149,10 @@ export default function StudioPage({ params }: { params: { projectId: string } }
   const [showInteriorModal, setShowInteriorModal] = useState(false);
   const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(null);
   const [hiddenLevels, setHiddenLevels] = useState<Set<number>>(new Set());
-  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
-  const [liveSunPosition, setLiveSunPosition] = useState<[number, number, number] | undefined>(undefined);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showStructuralModal, setShowStructuralModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showAppVersionModal, setShowAppVersionModal] = useState(false);
 
   // Version History states
   const [showVersionModal, setShowVersionModal] = useState(false);
@@ -980,11 +987,42 @@ export default function StudioPage({ params }: { params: { projectId: string } }
         </div>
 
         <div className="studio-topbar-actions">
+          <Link
+            className="button"
+            href={`/studio/${params.projectId}/sheet`}
+            title="Professional Drawing Sheets (Elevations, Sections, Schedules, Multi-Page PDF)"
+            style={{ background: "var(--c-F5F3FF, #F5F3FF)", borderColor: "var(--c-DDD6FE, #DDD6FE)", color: "var(--c-5146A5, #5146A5)", fontWeight: 700 }}
+          >
+            <FileText size={14} style={{ marginRight: 5, color: "var(--c-5146A5, #5146A5)" }} />Sheets
+          </Link>
+          <button
+            className="button"
+            onClick={() => setShowStructuralModal(true)}
+            title="Plan column grid, beams, foundations, and multi-floor alignment"
+            style={{ background: "var(--c-F0FDF4, #F0FDF4)", borderColor: "var(--c-BBF7D0, #BBF7D0)", color: "var(--c-15803D, #15803D)", fontWeight: 700 }}
+          >
+            <Building2 size={14} style={{ marginRight: 5, color: "var(--c-16A34A, #16A34A)" }} />Structure
+          </button>
           <button className="button" onClick={() => setShowVersionModal(true)} title="Save or restore named versions">
-            <History size={14} /> Version History ({savedVersions.length})
+            <History size={14} /> History ({savedVersions.length})
           </button>
           <button className="button" onClick={() => setShowExportModal(true)} title="Export 2D Floor Plan (PNG, PDF, SVG) and 3D Models (GLB, OBJ)">
             <Download size={14} /> Export
+          </button>
+          <button
+            className="button"
+            onClick={() => setShowFeedbackModal(true)}
+            title="Beta Feedback & Bug Report"
+          >
+            <MessageSquare size={14} /> Feedback
+          </button>
+          <button
+            className="button"
+            onClick={() => setShowAppVersionModal(true)}
+            title="NEXORA Studio Beta Release Notes"
+            style={{ padding: "4px 8px", fontSize: 11, fontFamily: "monospace" }}
+          >
+            {NEXORA_VERSION}
           </button>
           <button className="button" onClick={handleRestoreOriginal} title="Reset to initial layout">
             <RotateCcw size={14} /> Reset
@@ -1247,19 +1285,18 @@ export default function StudioPage({ params }: { params: { projectId: string } }
               <Maximize2 size={14} style={{ verticalAlign: "middle", marginRight: 5 }} /> Fit to Plot
             </button>
             <button
-              className={`tool${split3d ? " active" : ""}`}
-              onClick={() => setSplit3d((s) => !s)}
-              aria-pressed={split3d}
-              title="Show live synchronized 3D view side-by-side"
+              className={`tool${showRoomLabels ? " active" : ""}`}
+              onClick={() => setShowRoomLabels((v) => !v)}
+              aria-pressed={showRoomLabels}
+              title={showRoomLabels ? "Hide room labels" : "Show room labels"}
             >
-              <SquareSplitHorizontal size={14} style={{ verticalAlign: "middle", marginRight: 5 }} />
-              Split 3D View
+              <Tag size={14} style={{ verticalAlign: "middle", marginRight: 5 }} /> Labels
             </button>
             <button
               className="tool"
               onClick={() => setShowInteriorModal(true)}
               title="Furnish & style rooms with realistic 3D furniture"
-              style={{ color: "#7C3AED", fontWeight: 600 }}
+              style={{ color: "var(--c-7C3AED, #7C3AED)", fontWeight: 600 }}
             >
               <Paintbrush size={14} style={{ verticalAlign: "middle", marginRight: 5 }} />
               Interior
@@ -1268,27 +1305,18 @@ export default function StudioPage({ params }: { params: { projectId: string } }
               className="tool"
               onClick={() => setShowDesignWizard(true)}
               title="Select architectural layouts and explore designs"
-              style={{ color: "#7B68EE", fontWeight: 600 }}
+              style={{ color: "var(--c-7B68EE, #7B68EE)", fontWeight: 600 }}
             >
               <Sparkles size={14} style={{ verticalAlign: "middle", marginRight: 5 }} />
               Layout Suggestions
             </button>
             <button
               className="tool"
-              onClick={() => setShowAnalysisModal(true)}
-              title="Sunlight, Ventilation & Vastu architectural analysis"
-              style={{ color: "#D97706", fontWeight: 600 }}
-            >
-              <SunMedium size={14} style={{ verticalAlign: "middle", marginRight: 5 }} />
-              Sun & Vastu
-            </button>
-            <button
-              className="tool"
               onClick={() => router.push(`/studio/${params.projectId}/3d`)}
-              title="Full 3D Walkthrough & Architectural View"
+              title="Open the 3D view: walkthrough, cutaway and architectural styles"
             >
               <Box size={14} style={{ verticalAlign: "middle", marginRight: 5 }} />
-              3D Walkthrough
+              3D View
             </button>
 
             <div className="zoom-control">
@@ -1299,12 +1327,13 @@ export default function StudioPage({ params }: { params: { projectId: string } }
           </div>
 
           {/* Interactive Canvas Area */}
-          <div className={`canvas-area${split3d ? " split" : ""}`}>
+          <div className={`canvas-area`}>
             <div className="canvas-shell">
               <FloorPlanCanvas
                 ref={stageRef}
                 plan={plan}
                 levelIndex={levelIndex}
+                showLabels={showRoomLabels}
                 selection={selection}
                 onSelect={setSelection}
                 onMoveRoom={moveRoom}
@@ -1325,33 +1354,6 @@ export default function StudioPage({ params }: { params: { projectId: string } }
                 onMoveFurniture={handleMoveFurniture}
               />
             </div>
-
-            {split3d && (
-              <div className="split-3d">
-                <div className="split-3d-bar">
-                  <span>Live 3D · updates synchronously with every edit</span>
-                  <button
-                    className={`tool${cutaway3d ? " active" : ""}`}
-                    onClick={() => setCutaway3d((c) => !c)}
-                    aria-pressed={cutaway3d}
-                  >
-                    <Scissors size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
-                    Cutaway
-                  </button>
-                </div>
-                <HouseScene
-                  plan={plan}
-                  view="isometric"
-                  showGrid={false}
-                  cutaway={cutaway3d}
-                  topLevel={levelIndex}
-                  hiddenLevels={hiddenLevels}
-                  sunPosition={liveSunPosition}
-                  selectedRoomId={selection?.type === "room" ? selection.id : null}
-                  onSelectRoom={selectRoomAnyFloor}
-                />
-              </div>
-            )}
           </div>
 
           {/* Status Bar */}
@@ -1361,7 +1363,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
             <span>Total Built-up: {totalBuiltUpArea.toFixed(0)} {plan.units}²</span>
             <span>Zoom: {Math.round(zoom * 100)}%</span>
             {mode === "measure" && measureDistance !== null && (
-              <span style={{ color: "#E0631E", fontWeight: 700 }}>
+              <span style={{ color: "var(--c-E0631E, #E0631E)", fontWeight: 700 }}>
                 Measured: {measureDistance.toFixed(2)} {plan.units}
               </span>
             )}
@@ -1624,7 +1626,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
             </div>
             <div className="nexora-modal-body">
               <div style={{ marginBottom: 18 }}>
-                <p style={{ fontSize: 13, color: "#47406E", margin: "0 0 8px", fontWeight: 600 }}>
+                <p style={{ fontSize: 13, color: "var(--c-47406E, #47406E)", margin: "0 0 8px", fontWeight: 600 }}>
                   Save Current Design Version
                 </p>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -1642,9 +1644,9 @@ export default function StudioPage({ params }: { params: { projectId: string } }
                 </div>
               </div>
 
-              <div style={{ height: 1, background: "#EAE6F2", margin: "14px 0" }} />
+              <div style={{ height: 1, background: "var(--c-EAE6F2, #EAE6F2)", margin: "14px 0" }} />
 
-              <p style={{ fontSize: 13, color: "#47406E", margin: "0 0 10px", fontWeight: 600 }}>
+              <p style={{ fontSize: 13, color: "var(--c-47406E, #47406E)", margin: "0 0 10px", fontWeight: 600 }}>
                 Saved Versions ({savedVersions.length})
               </p>
 
@@ -1656,7 +1658,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
                 savedVersions.map((v) => (
                   <div key={v.id} className="version-item-card">
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: "#241E5C" }}>{v.name}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "var(--c-241E5C, #241E5C)" }}>{v.name}</div>
                       <div className="version-meta">
                         <Clock size={11} style={{ verticalAlign: "middle", marginRight: 4 }} />
                         {new Date(v.timestamp).toLocaleString()} · {v.plan.levels.length} floor{v.plan.levels.length > 1 ? "s" : ""} · {v.plan.levels[0]?.rooms.length ?? 0} rooms
@@ -1705,18 +1707,12 @@ export default function StudioPage({ params }: { params: { projectId: string } }
         initialRoomId={selection?.type === "room" ? selection.id : null}
         selectedFurnitureId={selectedFurnitureId}
         onSelectFurniture={setSelectedFurnitureId}
+        onSave={save}
+        saving={saving}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={undo}
         onRedo={redo}
-      />
-
-      {/* Sunlight, Ventilation & Vastu Architectural Analysis Modal */}
-      <ArchitecturalAnalysisModal
-        isOpen={showAnalysisModal}
-        onClose={() => setShowAnalysisModal(false)}
-        plan={plan}
-        onUpdateSunPosition={setLiveSunPosition}
       />
 
       {/* 2D & 3D Architectural Export Modal */}
@@ -1726,6 +1722,32 @@ export default function StudioPage({ params }: { params: { projectId: string } }
         plan={plan}
         activeLevelIndex={levelIndex}
         initialTab="2d"
+      />
+
+      {/* Structural Planning & Column Alignment Modal */}
+      {showStructuralModal && plan && (
+        <StructuralPlanningModal
+          isOpen={showStructuralModal}
+          onClose={() => setShowStructuralModal(false)}
+          plan={plan}
+          onUpdatePlan={(updated) => {
+            pushPlan(updated);
+            setStatus("Updated structural grid and columns");
+          }}
+        />
+      )}
+
+      {/* Beta Feedback & Bug Reporting Modal */}
+      <FeedbackModal
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        plan={plan}
+      />
+
+      {/* Version Information & Changelog Modal */}
+      <VersionModal
+        isOpen={showAppVersionModal}
+        onClose={() => setShowAppVersionModal(false)}
       />
     </main>
   );

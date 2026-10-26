@@ -2,7 +2,8 @@
 
 import { forwardRef, useEffect, useState } from "react";
 import { Stage, Layer, Group, Rect, Text, Line, Arc, Circle } from "react-konva";
-import type { FloorPlan, FurnitureItem, Room, RoomType, Wall, Opening } from "@houseplan/design-schema";
+import { fitRoomLabel, LABEL_LINE_GAP } from "@/lib/room-label";
+import type { FloorPlan, FurnitureItem, Room, RoomType, Wall, Opening, Column, Beam } from "@houseplan/design-schema";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { nearestWallOrEdge, snapToGrid } from "@/lib/geometry";
@@ -50,6 +51,8 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
   onZoomChange?: (zoom: number) => void;
   mode?: Mode;
   showGrid?: boolean;
+  /** Room names, dimensions and areas drawn inside the rooms. */
+  showLabels?: boolean;
   gridSize?: number;
   panEnabled?: boolean;
   onAddRoom?: (polygon: [number, number][]) => void;
@@ -72,6 +75,7 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
     onZoomChange,
     mode = "select",
     showGrid = true,
+    showLabels = true,
     gridSize = 0.5,
     panEnabled = false,
     onAddRoom,
@@ -345,30 +349,46 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
                   }}
                 />
 
-                {/* Room Name */}
-                <Text
-                  x={offsetX + minX * scale + 4}
-                  y={offsetY + minY * scale + Math.max(6, (rHeight * scale) / 2 - 16)}
-                  text={room.name}
-                  fontSize={12}
-                  fontStyle="bold"
-                  fill="#201C4B"
-                  width={Math.max(40, rWidth * scale - 8)}
-                  align="center"
-                  listening={false}
-                />
-
-                {/* Dimensions & Area */}
-                <Text
-                  x={offsetX + minX * scale + 4}
-                  y={offsetY + minY * scale + Math.max(22, (rHeight * scale) / 2 + 2)}
-                  text={`${rWidth.toFixed(1)} × ${rHeight.toFixed(1)} ${plan.units} (${area.toFixed(0)} sq ${plan.units === "m" ? "m" : "ft"})`}
-                  fontSize={9.5}
-                  fill={isSelected ? "#E0631E" : "#5B5579"}
-                  width={Math.max(40, rWidth * scale - 8)}
-                  align="center"
-                  listening={false}
-                />
+                {/* Room label: sized and wrapped to fit the room; turned along tall narrow rooms */}
+                {(() => {
+                  const fitted = fitRoomLabel({
+                    widthPx: rWidth * scale,
+                    heightPx: rHeight * scale,
+                    name: room.name,
+                    dims: `${rWidth.toFixed(1)} × ${rHeight.toFixed(1)} ${plan.units}`,
+                    area: `${area.toFixed(0)} sq ${plan.units === "m" ? "m" : "ft"}`,
+                  });
+                  if (!showLabels || !fitted) return null;
+                  let y = -fitted.totalHeight / 2;
+                  return (
+                    <Group
+                      x={offsetX + (minX + rWidth / 2) * scale}
+                      y={offsetY + (minY + rHeight / 2) * scale}
+                      rotation={fitted.rotation}
+                      listening={false}
+                    >
+                      {fitted.lines.map((line, i) => {
+                        const top = y;
+                        y += line.size * 1.15 + LABEL_LINE_GAP;
+                        return (
+                          <Text
+                            key={i}
+                            x={-fitted.maxWidth / 2}
+                            y={top}
+                            width={fitted.maxWidth}
+                            align="center"
+                            text={line.text}
+                            fontSize={line.size}
+                            fontStyle={line.kind === "name" ? "bold" : "normal"}
+                            fill={line.kind === "name" ? "#201C4B" : isSelected ? "#E0631E" : "#5B5579"}
+                            wrap="none"
+                            listening={false}
+                          />
+                        );
+                      })}
+                    </Group>
+                  );
+                })()}
               </Group>
             );
           })}
@@ -377,7 +397,7 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
           {((level?.furniture || []) as FurnitureItem[]).map((item) => {
             const isSelected = selection?.type === "furniture" && selection.id === item.id;
             const w = item.dimensions.width * (item.scale?.[0] ?? 1) * scale;
-            const d = item.dimensions.depth * (item.scale?.[1] ?? 1) * scale;
+            const d = item.dimensions.depth * (item.scale?.[2] ?? 1) * scale; // [x, y, z] = width, height, depth, as in 3D
             const px = offsetX + item.position[0] * scale;
             const py = offsetY + item.position[1] * scale;
             const rotDeg = ((item.rotation || 0) * 180) / Math.PI;
@@ -640,6 +660,60 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
               listening={false}
             />
           )}
+
+          {/* Structural Beams */}
+          {((level.beams || []) as Beam[]).map((beam) => {
+            const bx1 = offsetX + beam.start[0] * scale;
+            const by1 = offsetY + beam.start[1] * scale;
+            const bx2 = offsetX + beam.end[0] * scale;
+            const by2 = offsetY + beam.end[1] * scale;
+            return (
+              <Group key={beam.id}>
+                <Line
+                  points={[bx1, by1, bx2, by2]}
+                  stroke="#5146A5"
+                  strokeWidth={Math.max((beam.width || 0.75) * scale, 3)}
+                  dash={[8, 4]}
+                  opacity={0.65}
+                  listening={false}
+                />
+              </Group>
+            );
+          })}
+
+          {/* Structural Columns */}
+          {((level.columns || []) as Column[]).map((col) => {
+            const cx = offsetX + col.position[0] * scale;
+            const cy = offsetY + col.position[1] * scale;
+            const cw = (col.width || 0.75) * scale;
+            const cd = (col.depth || 0.75) * scale;
+            return (
+              <Group key={col.id}>
+                <Rect
+                  x={cx - cw / 2}
+                  y={cy - cd / 2}
+                  width={cw}
+                  height={cd}
+                  fill="#2A2652"
+                  stroke="#FFF4D6"
+                  strokeWidth={1.5}
+                  listening={false}
+                />
+                <Line
+                  points={[cx - cw * 0.35, cy, cx + cw * 0.35, cy]}
+                  stroke="#FFF4D6"
+                  strokeWidth={1}
+                  listening={false}
+                />
+                <Line
+                  points={[cx, cy - cd * 0.35, cx, cy + cd * 0.35]}
+                  stroke="#FFF4D6"
+                  strokeWidth={1}
+                  listening={false}
+                />
+              </Group>
+            );
+          })}
 
           {/* Draft Drawing: Room */}
           {draft && mode === "room" && (

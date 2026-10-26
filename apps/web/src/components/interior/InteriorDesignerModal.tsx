@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import {
   Armchair,
   Bath,
@@ -43,12 +44,21 @@ import {
   type FurnitureCatalogItem,
   type FurnitureCategory,
   autoFurnishRoom,
+  catalogForRoom,
   validateRoomFurniture,
   getRoomBounds,
 } from "@/lib/interior-catalog";
 import { floorName } from "@/lib/floors";
 
+const HouseScene = dynamic(() => import("@/components/viewer/HouseScene").then((m) => m.HouseScene), {
+  ssr: false,
+  loading: () => <div className="interior-preview-loading">Loading 3D…</div>,
+});
+
 export interface InteriorDesignerModalProps {
+  /** Persists the design now (otherwise it autosaves shortly after each change). */
+  onSave?: () => void | Promise<void>;
+  saving?: boolean;
   isOpen: boolean;
   onClose: () => void;
   plan: FloorPlan | null;
@@ -74,9 +84,11 @@ export function InteriorDesignerModal({
   canRedo,
   onUndo,
   onRedo,
+  onSave,
+  saving,
 }: InteriorDesignerModalProps) {
   const [activeTab, setActiveTab] = useState<"furniture" | "style" | "smart">("furniture");
-  const [categoryFilter, setCategoryFilter] = useState<FurnitureCategory | "all">("all");
+  const [categoryFilter, setCategoryFilter] = useState<FurnitureCategory | "all" | "room">("room");
   const [selectedRoomId, setSelectedRoomId] = useState<string>(initialRoomId || "");
   const [localSelectedFurnitureId, setLocalSelectedFurnitureId] = useState<string | null>(null);
 
@@ -131,6 +143,13 @@ export function InteriorDesignerModal({
     if (!activeRoom) return null;
     return validateRoomFurniture(activeRoom, roomFurniture);
   }, [activeRoom, roomFurniture]);
+
+  // Filtered catalog items (must be declared before early return to satisfy Rules of Hooks)
+  const catalogList = useMemo(() => {
+    if (categoryFilter === "all") return FURNITURE_CATALOG;
+    if (categoryFilter === "room") return catalogForRoom(activeRoom?.type ?? "other");
+    return FURNITURE_CATALOG.filter((item) => item.category === categoryFilter);
+  }, [categoryFilter, activeRoom?.type]);
 
   if (!isOpen || !plan || !activeRoom) return null;
 
@@ -255,12 +274,6 @@ export function InteriorDesignerModal({
     setSelectedFurnitureId(null);
   };
 
-  // Filtered catalog items
-  const catalogList = useMemo(() => {
-    if (categoryFilter === "all") return FURNITURE_CATALOG;
-    return FURNITURE_CATALOG.filter((item) => item.category === categoryFilter);
-  }, [categoryFilter]);
-
   const currentInterior = activeRoom.interior || {};
 
   return (
@@ -270,7 +283,7 @@ export function InteriorDesignerModal({
         <header className="interior-modal-header">
           <div className="interior-modal-title-group">
             <div className="interior-modal-badge">
-              <Paintbrush size={13} style={{ color: "#7B68EE" }} />
+              <Paintbrush size={13} style={{ color: "var(--c-7B68EE, #7B68EE)" }} />
               <span>Realistic Interior Designer</span>
             </div>
             <h2>Furnish & Style: {activeRoom.name}</h2>
@@ -288,6 +301,11 @@ export function InteriorDesignerModal({
             {onRedo && (
               <button type="button" className="button outline icon-btn" onClick={onRedo} disabled={!canRedo} title="Redo">
                 <Redo2 size={13} />
+              </button>
+            )}
+            {onSave && (
+              <button type="button" className="button outline" onClick={() => void onSave()} disabled={saving} title="Save this design now">
+                {saving ? "Saving…" : "Save design"}
               </button>
             )}
             <button type="button" className="button primary" onClick={onClose}>
@@ -376,6 +394,7 @@ export function InteriorDesignerModal({
                 <div className="interior-cat-pills">
                   {(
                     [
+                      { id: "room", label: "For this room" },
                       { id: "all", label: "All" },
                       { id: "bedroom", label: "Bedroom" },
                       { id: "living_room", label: "Living" },
@@ -535,10 +554,10 @@ export function InteriorDesignerModal({
               <div className="interior-smart-content">
                 <div className="interior-smart-hero">
                   <div className="interior-smart-icon">
-                    <Sparkles size={24} style={{ color: "#7B68EE" }} />
+                    <Sparkles size={24} style={{ color: "var(--c-7B68EE, #7B68EE)" }} />
                   </div>
                   <div>
-                    <h3>Smart AI Room Staging</h3>
+                    <h3>Smart Room Staging</h3>
                     <p>
                       Automatically place a coordinated, dimensionally verified set of furniture optimized for this{" "}
                       <strong>{activeRoom.type.replace("_", " ")}</strong>.
@@ -553,7 +572,7 @@ export function InteriorDesignerModal({
                   <h4>Walkway & Door Clearance Health</h4>
                   {clearanceAnalysis && clearanceAnalysis.warnings.length === 0 ? (
                     <div className="interior-health-ok">
-                      <Check size={18} style={{ color: "#2E7D32", marginRight: 8 }} />
+                      <Check size={18} style={{ color: "var(--c-2E7D32, #2E7D32)", marginRight: 8 }} />
                       <span>
                         <strong>All clearances satisfied!</strong> All furniture pieces fit within room walls with ample walkway space ({clearanceAnalysis.freeSpacePercent}% free).
                       </span>
@@ -562,7 +581,7 @@ export function InteriorDesignerModal({
                     <div className="interior-health-warnings">
                       {clearanceAnalysis?.warnings.map((w, idx) => (
                         <div key={idx} className="interior-warning-item">
-                          <AlertTriangle size={15} style={{ color: "#D97706", flexShrink: 0, marginTop: 2 }} />
+                          <AlertTriangle size={15} style={{ color: "var(--c-D97706, #D97706)", flexShrink: 0, marginTop: 2 }} />
                           <span>{w}</span>
                         </div>
                       ))}
@@ -587,6 +606,18 @@ export function InteriorDesignerModal({
 
           {/* Right Column: Room's Placed Furniture & Selected Item Inspector */}
           <div className="interior-inspector-pane">
+            <div className="interior-preview" aria-label={`3D preview of ${activeRoom.name}`}>
+              <HouseScene
+                plan={plan}
+                view="isometric"
+                showGrid={false}
+                cutaway
+                topLevel={activeLevelIndex}
+                selectedRoomId={activeRoom.id}
+                selectedFurnitureId={selectedFurnitureId}
+                onSelectFurniture={setSelectedFurnitureId}
+              />
+            </div>
             <div className="interior-inspector-head">
               <h3>Placed Objects ({roomFurniture.length})</h3>
               {roomFurniture.length > 0 && (
@@ -600,7 +631,7 @@ export function InteriorDesignerModal({
             <div className="interior-items-list">
               {roomFurniture.length === 0 ? (
                 <div className="interior-empty-room">
-                  <Box size={32} style={{ color: "#9E9E9E", marginBottom: 8 }} />
+                  <Box size={32} style={{ color: "var(--c-9E9E9E, #9E9E9E)", marginBottom: 8 }} />
                   <p>No furniture in this room yet.</p>
                   <button type="button" className="button small primary" onClick={handleAutoFurnish} style={{ marginTop: 8 }}>
                     <Wand2 size={12} style={{ marginRight: 4 }} /> Auto-Furnish Now

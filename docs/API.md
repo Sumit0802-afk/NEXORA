@@ -12,7 +12,7 @@ Base URL: `/api`
 | POST | `/projects/{id}/generate` | Submit generation request |
 | POST | `/projects/{id}/validate` | Run structural checks |
 
-The current project routes use in-memory storage and have no authentication. They are development scaffolding only. Before production, use a persistent repository, authentication, authorization, request limits, structured error responses, and version-aware writes.
+Auth routes: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`. Everything except `/api/health` and `/api/auth/*` requires the session cookie. The first account to register adopts projects created before login existed. The notes below predate this and are partly outdated: the project routes use in-memory storage. They are development scaffolding only. Before production, use a persistent repository, authentication, authorization, request limits, structured error responses, and version-aware writes.
 
 Planned endpoints:
 - `GET /jobs/{job_id}`

@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import User
 
-# No authentication is implemented yet (see docs/SECURITY.md). All projects are
-# attributed to this fixed local user until real auth/ownership checks land.
+# Legacy owner of projects created before login existed. It has no password and cannot sign in;
+# the first account to register adopts its projects (see routes/auth.py).
 DEMO_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 

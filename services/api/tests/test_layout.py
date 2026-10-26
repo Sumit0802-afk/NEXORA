@@ -113,3 +113,18 @@ def test_generate_endpoint_reports_when_nothing_fits():
     assert res.status_code == 200
     body = res.json()
     assert body["candidates"] == [] and "No layout fits" in body["message"]
+
+
+@pytest.mark.parametrize("seed", [1, 7, 13, 29])
+def test_no_two_doors_share_a_wall_position(seed):
+    req = parse_requirements("3 bedroom, 2 bathroom, 1 living room, 1 kitchen, 1 dining room")
+    req.floors = 2
+    for cand in generate_candidates(req, 30, 50, seed=seed)["candidates"]:
+        for level in cand["design"]["levels"]:
+            seen = set()
+            for o in level["openings"]:
+                if o["kind"] != "door":
+                    continue
+                key = (o["wallId"], o["offset"])
+                assert key not in seen, f"{level['id']}: overlapping doors on {o['wallId']}"
+                seen.add(key)

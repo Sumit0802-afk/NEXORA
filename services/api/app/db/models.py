@@ -11,6 +11,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def utc_naive() -> datetime:
+    """UTC wall-clock time without tzinfo. The auth tables use plain TIMESTAMP columns; storing an aware value would
+    make Postgres convert it to the server's local zone and shift every comparison by the UTC offset."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -21,9 +27,41 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Null for the legacy local "demo" user, which therefore cannot sign in.
+    password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Set once the user proves they own the email address with a one-time code.
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
     projects: Mapped[list["Project"]] = relationship(back_populates="owner")
+
+
+class EmailOtp(Base):
+    """One-time verification code; only a salted hash is stored."""
+
+    __tablename__ = "email_otps"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # "verify" (confirm a new account) or "reset" (forgot password); kept apart so one cannot be used as the other.
+    purpose: Mapped[str] = mapped_column(String, nullable=False, default="verify")
+    salt: Mapped[str] = mapped_column(String, nullable=False)
+    code_hash: Mapped[str] = mapped_column(String, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utc_naive)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+
+
+class AuthSession(Base):
+    """Server-side login session; only a hash of the cookie token is stored."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_naive)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
 
 
 class Project(Base):
@@ -56,3 +94,13 @@ class DesignVersion(Base):
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
     project: Mapped["Project"] = relationship(back_populates="versions")
+
+
+class LibraryFavorite(Base):
+    """A design from the house library that a user has starred."""
+
+    __tablename__ = "library_favorites"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    design_id: Mapped[str] = mapped_column(String, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_naive)

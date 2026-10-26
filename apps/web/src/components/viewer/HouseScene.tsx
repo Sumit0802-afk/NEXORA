@@ -17,6 +17,7 @@ import { StaircaseGeometry } from "./StaircaseGeometry";
 import { WalkthroughController } from "./WalkthroughController";
 import { FurniturePiece } from "./FurnitureGeometry";
 import { TerraceExteriorGeometry } from "./TerraceExteriorGeometry";
+import { StructuralFrameGeometry } from "./StructuralFrameGeometry";
 import type { TerraceConfig, ExteriorConfig } from "@/lib/terrace-catalog";
 
 export type SceneView = CameraView;
@@ -603,8 +604,8 @@ type HouseSceneProps = {
   exteriorConfig?: ExteriorConfig;
   selectedTerraceObjectId?: string | null;
   onSelectTerraceObject?: (id: string | null) => void;
-  /** Live 3D sun direction vector from solar geometry */
-  sunPosition?: [number, number, number];
+  /** Whether to render 3D concrete structural frame (columns, beams, footings) */
+  showStructuralFrame?: boolean;
 };
 
 export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function HouseScene(
@@ -623,7 +624,6 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
     onSelectFurniture,
     hiddenLevels,
     styleTheme = "modern",
-    sunPosition,
     walkthroughMode = false,
     isFirstPerson = false,
     onToggleFirstPerson,
@@ -638,6 +638,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
     exteriorConfig,
     selectedTerraceObjectId = null,
     onSelectTerraceObject,
+    showStructuralFrame = true,
   },
   ref
 ) {
@@ -731,7 +732,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
 
       {/* Primary sun light */}
       <directionalLight
-        position={sunPosition ?? [span * 0.75, span * 1.15, span * 0.55]}
+        position={[span * 0.75, span * 1.15, span * 0.55]}
         intensity={theme.sunIntensity}
         color="#FFF9F0"
         castShadow
@@ -803,6 +804,9 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
         selectedObjectId={selectedTerraceObjectId}
         onSelectObject={onSelectTerraceObject}
       />
+
+      {/* 3D Structural Frame (Concrete Columns, Beams, Footings) */}
+      <StructuralFrameGeometry plan={plan} visible={showStructuralFrame} />
 
       {/* 3D Walkthrough Character, Camera & Interior lighting */}
       <WalkthroughController

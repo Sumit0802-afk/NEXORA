@@ -583,6 +583,267 @@ export function FurniturePiece({
         );
       }
 
+      // ── OUTDOOR / TERRACE (proportional to the item's size, so metres and feet both work) ──
+      case "outdoor_sofa":
+      case "garden_bench": {
+        const back = item.type === "outdoor_sofa" ? 0.5 : 0.4;
+        return (
+          <group>
+            <mesh position={[0, h * 0.2, 0]} castShadow receiveShadow>
+              <boxGeometry args={[w, h * 0.35, d * 0.85]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.7} />
+            </mesh>
+            <mesh position={[0, h * 0.5, -d * 0.4]} castShadow>
+              <boxGeometry args={[w, h * back * 1.2, d * 0.2]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.7} />
+            </mesh>
+            <mesh position={[0, h * 0.42, d * 0.02]} castShadow>
+              <boxGeometry args={[w * 0.94, h * 0.14, d * 0.6]} />
+              <meshStandardMaterial color={secondaryColor} roughness={0.9} />
+            </mesh>
+          </group>
+        );
+      }
+      case "outdoor_coffee_table": {
+        return (
+          <group>
+            <mesh position={[0, h * 0.92, 0]} castShadow receiveShadow>
+              <boxGeometry args={[w, h * 0.16, d]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.6} />
+            </mesh>
+            {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b], i) => (
+              <mesh key={i} position={[a * w * 0.42, h * 0.42, b * d * 0.38]} castShadow>
+                <boxGeometry args={[w * 0.06, h * 0.84, w * 0.06]} />
+                <meshStandardMaterial color="#2B2B2B" roughness={0.5} />
+              </mesh>
+            ))}
+          </group>
+        );
+      }
+      case "sun_lounger": {
+        return (
+          <group>
+            <mesh position={[0, h * 0.3, 0]} castShadow receiveShadow>
+              <boxGeometry args={[w * 0.95, h * 0.25, d]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.7} />
+            </mesh>
+            <mesh position={[0, h * 0.62, -d * 0.38]} rotation={[0.7, 0, 0]} castShadow>
+              <boxGeometry args={[w * 0.9, h * 0.15, d * 0.4]} />
+              <meshStandardMaterial color={secondaryColor} roughness={0.9} />
+            </mesh>
+          </group>
+        );
+      }
+      case "outdoor_dining_set": {
+        const chairs: [number, number][] = [[-0.3, 1], [0.3, 1], [-0.3, -1], [0.3, -1]];
+        return (
+          <group>
+            <mesh position={[0, h * 0.78, 0]} castShadow receiveShadow>
+              <boxGeometry args={[w * 0.7, h * 0.08, d * 0.5]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.6} />
+            </mesh>
+            <mesh position={[0, h * 0.38, 0]} castShadow>
+              <boxGeometry args={[w * 0.08, h * 0.76, d * 0.08]} />
+              <meshStandardMaterial color="#2B2B2B" roughness={0.5} />
+            </mesh>
+            {chairs.map(([a, b], i) => (
+              <mesh key={i} position={[a * w, h * 0.3, b * d * 0.38]} castShadow>
+                <boxGeometry args={[w * 0.2, h * 0.6, d * 0.16]} />
+                <meshStandardMaterial color={secondaryColor} roughness={0.8} />
+              </mesh>
+            ))}
+          </group>
+        );
+      }
+      case "planter_box": {
+        return (
+          <group>
+            <mesh position={[0, h * 0.35, 0]} castShadow receiveShadow>
+              <boxGeometry args={[w, h * 0.7, d]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.8} />
+            </mesh>
+            <mesh position={[0, h * 0.78, 0]} castShadow>
+              <boxGeometry args={[w * 0.92, h * 0.16, d * 0.8]} />
+              <meshStandardMaterial color="#3F7A3D" roughness={1} />
+            </mesh>
+            <mesh position={[0, h * 0.95, 0]} castShadow>
+              <sphereGeometry args={[Math.min(w, d) * 0.38, 12, 10]} />
+              <meshStandardMaterial color="#4E9150" roughness={1} />
+            </mesh>
+          </group>
+        );
+      }
+      case "terracotta_planter": {
+        const r = Math.min(w, d) / 2;
+        return (
+          <group>
+            <mesh position={[0, h * 0.3, 0]} castShadow receiveShadow>
+              <cylinderGeometry args={[r, r * 0.7, h * 0.6, 16]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.9} />
+            </mesh>
+            <mesh position={[0, h * 0.78, 0]} castShadow>
+              <sphereGeometry args={[r * 0.85, 12, 10]} />
+              <meshStandardMaterial color="#4E9150" roughness={1} />
+            </mesh>
+          </group>
+        );
+      }
+      case "bbq_grill": {
+        return (
+          <group>
+            <mesh position={[0, h * 0.35, 0]} castShadow receiveShadow>
+              <boxGeometry args={[w, h * 0.7, d]} />
+              <meshStandardMaterial color="#2E2E32" roughness={0.5} metalness={0.4} />
+            </mesh>
+            <mesh position={[0, h * 0.78, 0]} castShadow>
+              <boxGeometry args={[w * 0.9, h * 0.1, d * 0.9]} />
+              <meshStandardMaterial color="#555555" roughness={0.4} metalness={0.6} />
+            </mesh>
+          </group>
+        );
+      }
+      case "indian_jhula": {
+        return (
+          <group>
+            {[-1, 1].map((a) => (
+              <mesh key={a} position={[a * w * 0.48, h / 2, 0]} castShadow>
+                <boxGeometry args={[w * 0.04, h, d * 0.5]} />
+                <meshStandardMaterial color="#5A3B22" roughness={0.8} />
+              </mesh>
+            ))}
+            <mesh position={[0, h, 0]} castShadow>
+              <boxGeometry args={[w, h * 0.05, d * 0.12]} />
+              <meshStandardMaterial color="#5A3B22" roughness={0.8} />
+            </mesh>
+            <mesh position={[0, h * 0.32, 0]} castShadow receiveShadow>
+              <boxGeometry args={[w * 0.8, h * 0.08, d * 0.7]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.7} />
+            </mesh>
+            {[-1, 1].map((a) => (
+              <mesh key={`c${a}`} position={[a * w * 0.38, h * 0.66, 0]}>
+                <boxGeometry args={[w * 0.01, h * 0.66, w * 0.01]} />
+                <meshStandardMaterial color="#B08D57" metalness={0.5} />
+              </mesh>
+            ))}
+          </group>
+        );
+      }
+      case "solar_array": {
+        return (
+          <group>
+            <mesh position={[0, h * 0.6, 0]} rotation={[-0.5, 0, 0]} castShadow>
+              <boxGeometry args={[w, h * 0.06, d]} />
+              <meshStandardMaterial color="#1D2B4F" roughness={0.3} metalness={0.5} />
+            </mesh>
+            <mesh position={[0, h * 0.25, 0]}>
+              <boxGeometry args={[w * 0.9, h * 0.5, d * 0.05]} />
+              <meshStandardMaterial color="#9A9A9A" metalness={0.6} />
+            </mesh>
+          </group>
+        );
+      }
+      case "water_tank": {
+        const r = Math.min(w, d) / 2;
+        return (
+          <mesh position={[0, h / 2, 0]} castShadow receiveShadow>
+            <cylinderGeometry args={[r, r, h, 20]} />
+            <meshStandardMaterial color={primaryColor} roughness={0.5} />
+          </mesh>
+        );
+      }
+      case "outdoor_parasol": {
+        const r = Math.max(w, d) / 2;
+        return (
+          <group>
+            <mesh position={[0, h * 0.45, 0]} castShadow>
+              <cylinderGeometry args={[r * 0.03, r * 0.03, h * 0.9, 8]} />
+              <meshStandardMaterial color="#6B6B6B" metalness={0.4} />
+            </mesh>
+            <mesh position={[0, h * 0.92, 0]} castShadow>
+              <coneGeometry args={[r, h * 0.2, 16]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.9} />
+            </mesh>
+          </group>
+        );
+      }
+      case "pergola": {
+        const post = Math.min(w, d) * 0.05;
+        return (
+          <group>
+            {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b], i) => (
+              <mesh key={i} position={[a * (w / 2 - post), h / 2, b * (d / 2 - post)]} castShadow>
+                <boxGeometry args={[post * 2, h, post * 2]} />
+                <meshStandardMaterial color={primaryColor} roughness={0.8} />
+              </mesh>
+            ))}
+            {Array.from({ length: 7 }).map((_, i) => (
+              <mesh key={`s${i}`} position={[0, h, -d / 2 + (d * (i + 0.5)) / 7]} castShadow>
+                <boxGeometry args={[w, post, post * 1.6]} />
+                <meshStandardMaterial color={primaryColor} roughness={0.8} />
+              </mesh>
+            ))}
+          </group>
+        );
+      }
+      case "outdoor_kitchen": {
+        return (
+          <group>
+            <mesh position={[0, h * 0.4, 0]} castShadow receiveShadow>
+              <boxGeometry args={[w, h * 0.8, d]} />
+              <meshStandardMaterial color={secondaryColor} roughness={0.7} />
+            </mesh>
+            <mesh position={[0, h * 0.84, 0]} castShadow>
+              <boxGeometry args={[w * 1.02, h * 0.08, d * 1.04]} />
+              <meshStandardMaterial color={primaryColor} roughness={0.4} />
+            </mesh>
+            <mesh position={[-w * 0.25, h * 0.92, 0]} castShadow>
+              <boxGeometry args={[w * 0.3, h * 0.08, d * 0.6]} />
+              <meshStandardMaterial color="#222222" metalness={0.5} roughness={0.4} />
+            </mesh>
+          </group>
+        );
+      }
+      case "walking_path": {
+        return (
+          <mesh position={[0, h / 2, 0]} receiveShadow>
+            <boxGeometry args={[w, Math.max(h, 0.02), d]} />
+            <meshStandardMaterial color={primaryColor} roughness={0.95} />
+          </mesh>
+        );
+      }
+      case "light_post": {
+        return (
+          <group>
+            <mesh position={[0, h * 0.45, 0]} castShadow>
+              <cylinderGeometry args={[w * 0.1, w * 0.12, h * 0.9, 8]} />
+              <meshStandardMaterial color="#2B2B2B" metalness={0.5} />
+            </mesh>
+            <mesh position={[0, h * 0.95, 0]}>
+              <sphereGeometry args={[w * 0.3, 12, 10]} />
+              <meshStandardMaterial color="#FFE9A8" emissive="#FFD27A" emissiveIntensity={0.9} />
+            </mesh>
+          </group>
+        );
+      }
+      case "drying_rack": {
+        return (
+          <group>
+            {[-1, 1].map((a) => (
+              <mesh key={a} position={[a * w * 0.48, h / 2, 0]} castShadow>
+                <boxGeometry args={[w * 0.03, h, d * 0.6]} />
+                <meshStandardMaterial color="#8A8F98" metalness={0.5} />
+              </mesh>
+            ))}
+            {[0.6, 0.8, 1].map((y) => (
+              <mesh key={y} position={[0, h * y, 0]}>
+                <boxGeometry args={[w, h * 0.015, h * 0.015]} />
+                <meshStandardMaterial color="#8A8F98" metalness={0.5} />
+              </mesh>
+            ))}
+          </group>
+        );
+      }
+
       // Default fallback generic item
       default: {
         return (

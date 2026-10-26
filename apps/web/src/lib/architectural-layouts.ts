@@ -27,12 +27,11 @@ export interface ArchitecturalDesignSpec {
   name: string;
   tagline: string;
   description: string;
-  footprintType: "Open-Plan" | "Formal Zoned" | "Courtyard Core" | "L-Wing" | "U-Pavilion" | "Duplex Void" | "Vastu Classic" | "Luxury Estate";
+  footprintType: "Open-Plan" | "Formal Zoned" | "Courtyard Core" | "L-Wing" | "U-Pavilion" | "Duplex Void" | "Traditional Hall" | "Luxury Estate";
   features: string[];
   pros: string[];
   circulationScore: number;
   lightRating: "A+" | "A" | "A-";
-  vastuScore?: number;
   recommendedOrientation: string;
 }
 
@@ -128,7 +127,6 @@ export const ARCHITECTURAL_DESIGNS: Record<ArchitecturalDesignId, ArchitecturalD
     pros: ["Feels 25% larger than partitioned plans", "Exceptional daylight & cross-ventilation", "Ideal for modern entertaining"],
     circulationScore: 94,
     lightRating: "A+",
-    vastuScore: 78,
     recommendedOrientation: "North / East Facing",
   },
   family_spacious: {
@@ -146,13 +144,12 @@ export const ARCHITECTURAL_DESIGNS: Record<ArchitecturalDesignId, ArchitecturalD
     pros: ["Maximum acoustic privacy between rooms", "Elderly ground-floor bedroom accessibility", "Formal guests kept separate from family"],
     circulationScore: 91,
     lightRating: "A",
-    vastuScore: 86,
     recommendedOrientation: "East / North-East Facing",
   },
   courtyard: {
     id: "courtyard",
     name: "Courtyard House (Atrium Core)",
-    tagline: "Centered around an open-to-sky Brahmasthan",
+    tagline: "Centered around an open-to-sky courtyard",
     description: "Traditional inward-looking design wrapping around a central open-to-sky courtyard garden. Every room looks inward into the lush green courtyard, ensuring natural convection cooling, peace, and total privacy from neighbors.",
     footprintType: "Courtyard Core",
     features: [
@@ -164,7 +161,6 @@ export const ARCHITECTURAL_DESIGNS: Record<ArchitecturalDesignId, ArchitecturalD
     pros: ["Natural cooling even in peak summer", "Complete privacy from tight neighboring plots", "Serene internal garden views from all rooms"],
     circulationScore: 89,
     lightRating: "A+",
-    vastuScore: 96,
     recommendedOrientation: "All orientations (Self-contained lightwell)",
   },
   l_shaped: {
@@ -182,7 +178,6 @@ export const ARCHITECTURAL_DESIGNS: Record<ArchitecturalDesignId, ArchitecturalD
     pros: ["Creates a private, secluded yard even on small plots", "Two exterior exposures for nearly every room", "Easy natural zoning"],
     circulationScore: 88,
     lightRating: "A",
-    vastuScore: 82,
     recommendedOrientation: "North-West or North-East corner plots",
   },
   u_shaped: {
@@ -200,7 +195,6 @@ export const ARCHITECTURAL_DESIGNS: Record<ArchitecturalDesignId, ArchitecturalD
     pros: ["Ultimate privacy for master suites", "Breathtaking courtyard focal point", "Distinct day and night zones"],
     circulationScore: 86,
     lightRating: "A+",
-    vastuScore: 84,
     recommendedOrientation: "South or West rear garden orientation",
   },
   duplex: {
@@ -218,25 +212,23 @@ export const ARCHITECTURAL_DESIGNS: Record<ArchitecturalDesignId, ArchitecturalD
     pros: ["Grand luxurious architectural volume", "Vertical connectivity and visual drama", "Spacious open feel even on compact footprint"],
     circulationScore: 92,
     lightRating: "A+",
-    vastuScore: 80,
     recommendedOrientation: "North / North-East Facing",
   },
   traditional_indian: {
     id: "traditional_indian",
-    name: "Traditional Indian House (Vastu)",
-    tagline: "Vastu Shastra compliant with front Thinnai verandah",
-    description: "Indigenous vernacular Indian layout designed according to Vastu Purusha Mandala principles. Features a welcoming street-facing sit-out (Thinnai), Agneya kitchen in SE, Nairutya master bedroom in SW, and Ishanya pooja room in NE.",
-    footprintType: "Vastu Classic",
+    name: "Traditional Hall House",
+    tagline: "Front verandah, central hall & separate kitchen wing",
+    description: "Vernacular family house with a welcoming street-facing sit-out (Thinnai), a central family hall, a kitchen wing at the rear and a quiet master bedroom with attached bath and prayer/study room.",
+    footprintType: "Traditional Hall",
     features: [
       "Front Thinnai / Verandah for street greeting",
-      "Strict Vastu orientation (Kitchen SE, Master SW, Pooja NE)",
-      "Central family gathering hall (Brahmasthan)",
+      "Kitchen wing separated from the sleeping zone",
+      "Central family gathering hall",
       "Traditional swing balcony & utility wash area",
     ],
-    pros: ["100% Vastu compliance for positive energy", "Culturally authentic joint/extended family living", "Optimal morning light in kitchen and pooja"],
+    pros: ["Clear public, family and private zoning", "Culturally authentic joint/extended family living", "Good morning light in kitchen and prayer/study room"],
     circulationScore: 90,
     lightRating: "A",
-    vastuScore: 98,
     recommendedOrientation: "East or North Facing",
   },
   contemporary_luxury: {
@@ -254,7 +246,6 @@ export const ARCHITECTURAL_DESIGNS: Record<ArchitecturalDesignId, ArchitecturalD
     pros: ["Uncompromised luxury spatial standards", "Separate service and family circulation", "Highest resale and architectural value"],
     circulationScore: 95,
     lightRating: "A+",
-    vastuScore: 85,
     recommendedOrientation: "East / North Facing",
   },
 };
@@ -540,7 +531,7 @@ export function generateArchitecturalPlan(params: {
           break;
 
         case "traditional_indian":
-          // Vastu layout: NE Pooja, SE Kitchen, SW Master Bed, NW Parking, Brahmasthan Hall
+          // Traditional hall layout: verandah, parking, kitchen wing, central hall, master suite, prayer/study room
           rooms.push({
             id: "ground-verandah",
             type: "other",
@@ -550,31 +541,31 @@ export function generateArchitecturalPlan(params: {
           rooms.push({
             id: "ground-parking",
             type: "parking",
-            name: "Parking (Vayavya NW)",
+            name: "Parking",
             polygon: makeRect(xSplit * 0.45, 0, xSplit, yFront),
           });
           rooms.push({
             id: "ground-kitchen",
             type: "kitchen",
-            name: "Kitchen (Agneya SE)",
+            name: "Kitchen",
             polygon: makeRect(xSplit, 0, W, yFront),
           });
           rooms.push({
             id: "ground-living",
             type: "living_room",
-            name: "Central Hall (Brahmasthan)",
+            name: "Central Hall",
             polygon: makeRect(0, yFront, xSplit, yMid),
           });
           rooms.push({
             id: "ground-master-bed",
             type: "bedroom",
-            name: "Master Suite (Nairutya SW)",
+            name: "Master Suite",
             polygon: makeRect(0, yMid, xSplit, L),
           });
           rooms.push({
             id: "ground-pooja",
             type: "study",
-            name: "Pooja & Meditation (Ishanya NE)",
+            name: "Prayer & Study Room",
             polygon: makeRect(xSplit, yMid, W - 6, L),
           });
           rooms.push({
@@ -625,6 +616,14 @@ export function generateArchitecturalPlan(params: {
           break;
 
         case "duplex":
+          // Double-height great room occupies the whole front-left column; services sit behind it
+          rooms.push({ id: "ground-living", type: "living_room", name: "Double-Height Great Room", polygon: makeRect(0, 0, xSplit, yMid) });
+          rooms.push({ id: "ground-parking", type: "parking", name: "Car Porch & Entry", polygon: makeRect(xSplit, 0, W, yFront) });
+          rooms.push({ id: "ground-dining", type: "dining_room", name: "Dining Gallery", polygon: makeRect(0, yMid, xSplit, L) });
+          rooms.push({ id: "ground-kitchen", type: "kitchen", name: "Kitchen & Pantry", polygon: makeRect(xSplit, yMid, W - 6, L) });
+          rooms.push({ id: "ground-bath", type: "bathroom", name: "Powder Room", polygon: makeRect(W - 6, yMid, W, L) });
+          break;
+
         case "family_spacious":
         default:
           rooms.push({

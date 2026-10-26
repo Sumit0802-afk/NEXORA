@@ -1,5 +1,6 @@
 "use client";
 
+import { getDefaultUnits } from "@/lib/preferences";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -71,7 +72,7 @@ function detectFloors(text: string): number {
 
 const STEPS = [
   { title: "Project brief", hint: "Tell us about your home" },
-  { title: "Generate layouts", hint: "Get AI layouts" },
+  { title: "Generate layouts", hint: "Get automated layouts" },
   { title: "Edit in 2D", hint: "Customize your plan" },
   { title: "3D preview", hint: "Visualize your home" },
 ];
@@ -83,6 +84,7 @@ export default function NewDesignPage() {
   const [width, setWidth] = useState("30");
   const [length, setLength] = useState("40");
   const [unit, setUnit] = useState<"ft" | "m">("ft");
+  useEffect(() => setUnit(getDefaultUnits()), []); // account preference
   const [roomChips, setRoomChips] = useState(["2 bedrooms", "2 bathrooms", "kitchen", "living room"]);
   const [roomDraft, setRoomDraft] = useState<string | null>(null);
   const rooms = roomChips.join(", ");
@@ -163,7 +165,7 @@ export default function NewDesignPage() {
         })}
       </ol>
       <div className="nd-side-art">
-        <Image src="/images/brief-side.jpg" alt="" width={780} height={1102} sizes="260px" quality={90}/>
+        <Image src="/images/brief-side.jpg" alt="" width={780} height={1102} sizes="260px" quality={80}/>
         <p>From an idea<br/>to your dream home.</p>
         <span className="nd-side-rule"/>
       </div>
@@ -285,7 +287,7 @@ export default function NewDesignPage() {
 
             <div className="nd-actions">
               <button className="nd-btn primary" type="submit" disabled={busy || roomChips.length === 0}>
-                <Sparkles size={19}/> {generating ? (aiStatus?.enabled ? "Reading your brief with AI…" : "Generating layouts…") : <>Generate layouts <ArrowRight size={18}/></>}
+                <Sparkles size={19}/> {generating ? "Analyzing your brief & generating layouts…" : <>Generate layouts <ArrowRight size={18}/></>}
               </button>
               <button className="nd-btn" type="button" disabled={busy} onClick={() => chooseCandidate(null)}>
                 <SquareDashed size={18}/> {opening === "empty" ? "Creating…" : "Start with an empty plot"}
@@ -295,14 +297,14 @@ export default function NewDesignPage() {
             {!notice && aiStatus && (
               <p className="ai-note">
                 <Sparkles size={12}/> {aiStatus.enabled
-                  ? `AI is on (${aiStatus.provider === "gemini" ? "Gemini" : "Claude"}): it reads your description in English or Hinglish and explains each option.`
-                  : "AI is off: rooms are read with built-in rules."}
+                  ? `Smart Engine active (${aiStatus.provider === "gemini" ? "Gemini" : "Claude"}): analyzes your description in English or Hinglish and explains each option.`
+                  : "Smart Engine ready: rooms are generated with built-in architectural rules."}
               </p>
             )}
           </form>
 
           <aside className="nd-visual" aria-label="Example 3D layout">
-            <Image src="/images/brief-iso.jpg" alt="Example isometric 3D view of a generated home layout" fill sizes="(max-width: 1100px) 100vw, 40vw" quality={90} priority/>
+            <Image src="/images/brief-iso.jpg" alt="Example isometric 3D view of a generated home layout" fill sizes="(max-width: 1100px) 100vw, 40vw" quality={80} priority/>
             <div className="nd-plot-card">
               <span className="nd-plot-icon"><Ruler size={20}/></span>
               <div>
@@ -332,9 +334,9 @@ export default function NewDesignPage() {
               </div>
             )}
             {result.requirements.notes.map((n) => <p key={n} className="req-note">{n}</p>)}
-            {result.ai?.used && !result.ai.error && <p className="ai-note"><Sparkles size={12}/> Brief read and options explained by AI ({result.ai.model})</p>}
-            {result.ai?.used && result.ai.error && <p className="ai-note warn"><Sparkles size={12}/> Brief read by AI ({result.ai.model}); option explanations skipped: {result.ai.error}</p>}
-            {!result.ai?.used && result.ai?.error && <p className="ai-note warn"><AlertTriangle size={12}/> AI unavailable, used the built-in rules instead: {result.ai.error}</p>}
+            {result.ai?.used && !result.ai.error && <p className="ai-note"><Sparkles size={12}/> Brief analyzed and options explained by Smart Engine ({result.ai.model})</p>}
+            {result.ai?.used && result.ai.error && <p className="ai-note warn"><Sparkles size={12}/> Brief analyzed by Smart Engine ({result.ai.model}); option explanations skipped: {result.ai.error}</p>}
+            {!result.ai?.used && result.ai?.error && <p className="ai-note warn"><AlertTriangle size={12}/> Smart Engine offline, used built-in architectural rules instead: {result.ai.error}</p>}
           </div>
           <div className="results-actions">
             <button className="button" onClick={() => setResult(null)} disabled={opening !== null}><Pencil size={14}/> Edit brief</button>

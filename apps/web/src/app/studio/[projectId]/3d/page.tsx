@@ -36,16 +36,21 @@ import {
   Utensils,
   Footprints,
   Paintbrush,
-  SunMedium,
   Download,
+  Building2,
+  FileText,
+  MessageSquare,
 } from "lucide-react";
 import { HouseScene, type HouseSceneHandle, type SceneView, ARCH_STYLES, type ArchStyleId } from "@/components/viewer/HouseScene";
 import { WalkthroughHUD } from "@/components/viewer/WalkthroughHUD";
 import { DesignWizardModal } from "@/components/plan/DesignWizardModal";
 import { InteriorDesignerModal } from "@/components/interior/InteriorDesignerModal";
 import { TerraceDesignerModal } from "@/components/exterior/TerraceDesignerModal";
-import { ArchitecturalAnalysisModal } from "@/components/analysis/ArchitecturalAnalysisModal";
 import { ExportModal } from "@/components/export/ExportModal";
+import { StructuralPlanningModal } from "@/components/structural/StructuralPlanningModal";
+import { FeedbackModal } from "@/components/feedback/FeedbackModal";
+import { VersionModal } from "@/components/common/VersionModal";
+import { NEXORA_VERSION } from "@/lib/telemetry";
 import { DEFAULT_TERRACE_CONFIG, DEFAULT_EXTERIOR_CONFIG, type TerraceConfig, type ExteriorConfig } from "@/lib/terrace-catalog";
 import { createProject, saveDesign } from "@/lib/api";
 import { buildSceneGeometry } from "@/lib/scene-geometry";
@@ -77,7 +82,7 @@ function genId(prefix: string) {
    3D PREVIEW PAGE
    ════════════════════════════════════════════════════════════ */
 export default function Preview3DPage({ params }: { params: { projectId: string } }) {
-  const { plan, loadError, isDemo, projectName, pushPlan } = usePlanContext();
+  const { plan, loadError, isDemo, projectName, pushPlan, save, saving } = usePlanContext();
 
   // ── 3D viewport state ──
   const [view, setView]           = useState<SceneView>("perspective");
@@ -128,11 +133,18 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
   const [showTerraceModal, setShowTerraceModal] = useState(false);
   const [terraceConfig, setTerraceConfig] = useState<TerraceConfig>(DEFAULT_TERRACE_CONFIG);
   const [exteriorConfig, setExteriorConfig] = useState<ExteriorConfig>(DEFAULT_EXTERIOR_CONFIG);
-
-  // ── Architectural Analysis (Sunlight, Ventilation & Vastu) state ──
-  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
-  const [liveSunPosition, setLiveSunPosition] = useState<[number, number, number] | undefined>(undefined);
+  // Restore saved terrace/exterior options once, when the design first loads.
+  const restoredConfigRef = useRef(false);
+  useEffect(() => {
+    if (!plan || restoredConfigRef.current) return;
+    restoredConfigRef.current = true;
+    if (plan.terraceConfig) setTerraceConfig({ ...DEFAULT_TERRACE_CONFIG, ...(plan.terraceConfig as Partial<TerraceConfig>) });
+    if (plan.exteriorConfig) setExteriorConfig({ ...DEFAULT_EXTERIOR_CONFIG, ...(plan.exteriorConfig as Partial<ExteriorConfig>) });
+  }, [plan]);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showStructuralModal, setShowStructuralModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showAppVersionModal, setShowAppVersionModal] = useState(false);
 
   useEffect(() => {
     if (plan && !originalPlanRef.current) {
@@ -391,7 +403,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
             className="button"
             onClick={() => setShowTerraceModal(true)}
             title="Design the rooftop terrace, exterior facade, railings, and outdoor furniture"
-            style={{ background: "#FFF8EC", borderColor: "#FCD68A", color: "#92400E", fontWeight: 700 }}
+            style={{ background: "var(--c-FFF8EC, #FFF8EC)", borderColor: "var(--c-FCD68A, #FCD68A)", color: "var(--c-92400E, #92400E)", fontWeight: 700 }}
           >
             🏛️ Terrace & Exterior
           </button>
@@ -399,12 +411,12 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
             className="button"
             onClick={() => setShowInteriorModal(true)}
             title="Open Realistic Interior Designer for room furniture and styling"
-            style={{ background: "#F5F3FF", borderColor: "#DDD6FE", color: "#5B21B6", fontWeight: 700 }}
+            style={{ background: "var(--c-F5F3FF, #F5F3FF)", borderColor: "var(--c-DDD6FE, #DDD6FE)", color: "var(--c-5B21B6, #5B21B6)", fontWeight: 700 }}
           >
-            <Paintbrush size={14} style={{ marginRight: 5, color: "#7C3AED" }} />Interior Designer
+            <Paintbrush size={14} style={{ marginRight: 5, color: "var(--c-7C3AED, #7C3AED)" }} />Interior Designer
           </button>
           <button className="button" onClick={() => setShowDesignWizard(true)} title="Choose from 8 architectural designs and structural terrace layouts">
-            <Sparkles size={14} style={{ marginRight: 5, color: "#7B68EE" }} />House Designs
+            <Sparkles size={14} style={{ marginRight: 5, color: "var(--c-7B68EE, #7B68EE)" }} />House Designs
           </button>
           <button
             className="button"
@@ -412,6 +424,37 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
             title="Export 3D Model (GLB, OBJ) and 2D Architectural Plans"
           >
             <Download size={14} style={{ marginRight: 5 }} />Export
+          </button>
+          <Link
+            className="button"
+            href={`/studio/${params.projectId}/sheet`}
+            title="Professional Drawing Sheets (Elevations, Sections, Schedules, Multi-Page PDF)"
+            style={{ background: "var(--c-F5F3FF, #F5F3FF)", borderColor: "var(--c-DDD6FE, #DDD6FE)", color: "var(--c-5146A5, #5146A5)", fontWeight: 700 }}
+          >
+            <FileText size={14} style={{ marginRight: 5, color: "var(--c-7C3AED, #7C3AED)" }} />Sheets
+          </Link>
+          <button
+            className="button"
+            onClick={() => setShowStructuralModal(true)}
+            title="Plan column grid, beams, foundations, and multi-floor alignment"
+            style={{ background: "var(--c-F0FDF4, #F0FDF4)", borderColor: "var(--c-BBF7D0, #BBF7D0)", color: "var(--c-15803D, #15803D)", fontWeight: 700 }}
+          >
+            <Building2 size={14} style={{ marginRight: 5, color: "var(--c-16A34A, #16A34A)" }} />Structure
+          </button>
+          <button
+            className="button"
+            onClick={() => setShowFeedbackModal(true)}
+            title="Beta Feedback & Bug Report"
+          >
+            <MessageSquare size={14} style={{ marginRight: 5 }} />Feedback
+          </button>
+          <button
+            className="button"
+            onClick={() => setShowAppVersionModal(true)}
+            title="NEXORA Studio Beta Release Notes"
+            style={{ padding: "4px 8px", fontSize: 11, fontFamily: "monospace" }}
+          >
+            {NEXORA_VERSION}
           </button>
           <button className="button" onClick={handleScreenshot} title="Export PNG screenshot">
             <Camera size={14} style={{ marginRight: 5 }} />Screenshot
@@ -485,7 +528,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     className="studio-tool-btn"
                     onClick={() => setShowTerraceModal(true)}
                     title="Design rooftop terrace, exterior facade, railings & outdoor furniture"
-                    style={{ background: "rgba(245, 158, 11, 0.12)", color: "#92400E", fontWeight: 700 }}
+                    style={{ background: "rgba(245, 158, 11, 0.12)", color: "var(--c-92400E, #92400E)", fontWeight: 700 }}
                   >
                     <span style={{ fontSize: 13 }}>🏛️</span>
                     <span>Terrace</span>
@@ -495,7 +538,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     className="studio-tool-btn"
                     onClick={() => { sceneRef.current?.viewTerrace?.(); showToast("Camera moved to rooftop terrace"); }}
                     title="Orient camera onto the rooftop terrace"
-                    style={{ background: "rgba(245, 158, 11, 0.08)", color: "#92400E" }}
+                    style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--c-92400E, #92400E)" }}
                   >
                     <span style={{ fontSize: 13 }}>🔭</span>
                     <span>View Roof</span>
@@ -510,9 +553,9 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     className="studio-tool-btn"
                     onClick={() => setShowInteriorModal(true)}
                     title="Furnish & customize rooms with 3D furniture and finishes"
-                    style={{ background: "rgba(124, 58, 237, 0.12)", color: "#5B21B6", fontWeight: 700 }}
+                    style={{ background: "rgba(124, 58, 237, 0.12)", color: "var(--c-5B21B6, #5B21B6)", fontWeight: 700 }}
                   >
-                    <Paintbrush size={13} style={{ color: "#7C3AED" }} />
+                    <Paintbrush size={13} style={{ color: "var(--c-7C3AED, #7C3AED)" }} />
                     <span>Interior</span>
                   </button>
 
@@ -537,25 +580,10 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     className="studio-tool-btn"
                     onClick={() => setShowDesignWizard(true)}
                     title="Change architectural layout or structural terrace"
-                    style={{ background: "rgba(123, 104, 238, 0.15)", color: "#5146A5", fontWeight: 600 }}
+                    style={{ background: "rgba(123, 104, 238, 0.15)", color: "var(--c-5146A5, #5146A5)", fontWeight: 600 }}
                   >
-                    <Sparkles size={13} style={{ color: "#7B68EE" }} />
+                    <Sparkles size={13} style={{ color: "var(--c-7B68EE, #7B68EE)" }} />
                     <span>Designs</span>
-                  </button>
-                </div>
-
-                <div className="studio-toolbar-divider" />
-
-                {/* ARCHITECTURAL ANALYSIS (SUNLIGHT, VENTILATION & VASTU) */}
-                <div className="studio-toolbar-cluster">
-                  <button
-                    className="studio-tool-btn"
-                    onClick={() => setShowAnalysisModal(true)}
-                    title="Analyze sunlight exposure, cross-ventilation, and optional Vastu layout"
-                    style={{ background: "rgba(245, 158, 11, 0.14)", color: "#B45309", fontWeight: 700 }}
-                  >
-                    <SunMedium size={13} style={{ color: "#D97706" }} />
-                    <span>Sun & Vastu</span>
                   </button>
                 </div>
 
@@ -567,9 +595,9 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     className="studio-tool-btn"
                     onClick={() => setShowExportModal(true)}
                     title="Export 3D GLB/OBJ model, screenshot, or 2D floor plans"
-                    style={{ background: "rgba(16, 185, 129, 0.12)", color: "#047857", fontWeight: 700 }}
+                    style={{ background: "rgba(16, 185, 129, 0.12)", color: "var(--c-047857, #047857)", fontWeight: 700 }}
                   >
-                    <Download size={13} style={{ color: "#059669" }} />
+                    <Download size={13} style={{ color: "var(--c-059669, #059669)" }} />
                     <span>Export</span>
                   </button>
                 </div>
@@ -585,10 +613,10 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     aria-expanded={showFloorMenu}
                     title="Manage floors — select, hide, add or delete"
                   >
-                    <Layers size={13} style={{ color: "#5146A5", flexShrink: 0 }} />
+                    <Layers size={13} style={{ color: "var(--c-5146A5, #5146A5)", flexShrink: 0 }} />
                     <span className="studio-floor-select-label">{activeFloorLabel}</span>
                     {hiddenFloors.size > 0 && (
-                      <span className="studio-floor-badge" style={{ background: "#FFF4D6", color: "#7A5B00" }} title={`${hiddenFloors.size} floor(s) hidden`}>
+                      <span className="studio-floor-badge" style={{ background: "var(--c-FFF4D6, #FFF4D6)", color: "var(--c-7A5B00, #7A5B00)" }} title={`${hiddenFloors.size} floor(s) hidden`}>
                         {hiddenFloors.size} hidden
                       </span>
                     )}
@@ -623,7 +651,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                             <div className="studio-floor-sub">Whole building · {visibleCount}/{levelCount} visible</div>
                           </div>
                         </div>
-                        {topLevel === undefined && <Check size={13} style={{ color: "#5146A5", flexShrink: 0 }} />}
+                        {topLevel === undefined && <Check size={13} style={{ color: "var(--c-5146A5, #5146A5)", flexShrink: 0 }} />}
                       </div>
 
                       {/* Per-floor rows */}
@@ -661,7 +689,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
 
                             {/* Right: actions */}
                             <div className="studio-floor-actions">
-                              {isActive && !isHidden && <Check size={13} style={{ color: "#5146A5", flexShrink: 0 }} />}
+                              {isActive && !isHidden && <Check size={13} style={{ color: "var(--c-5146A5, #5146A5)", flexShrink: 0 }} />}
 
                               {/* Hide / Restore */}
                               <button
@@ -810,7 +838,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
               <div className="studio-canvas-container">
                 {rooms.length === 0 ? (
                   <div className="studio-empty-card">
-                    <Orbit size={36} style={{ color: "#5146A5", opacity: 0.8, marginBottom: 12 }} />
+                    <Orbit size={36} style={{ color: "var(--c-5146A5, #5146A5)", opacity: 0.8, marginBottom: 12 }} />
                     <h3>Empty Plot</h3>
                     <p>Add rooms in the 2D editor and they will appear here in 3D.</p>
                     <Link className="button primary" href={`/studio/${params.projectId}`}>
@@ -833,7 +861,6 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     onSelectFurniture={setSelectedFurnitureId}
                     hiddenLevels={hiddenFloors}
                     styleTheme={styleTheme}
-                    sunPosition={liveSunPosition}
                     walkthroughMode={walkthrough}
                     isFirstPerson={isFirstPerson}
                     onToggleFirstPerson={() => setIsFirstPerson((p) => !p)}
@@ -905,7 +932,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                 <div className="studio-gesture-guide" role="region" aria-label="Navigation help">
                   <div className="studio-gesture-head">
                     <div className="studio-gesture-title">
-                      <HelpCircle size={13} style={{ color: "#5146A5" }} /> 3D Controls
+                      <HelpCircle size={13} style={{ color: "var(--c-5146A5, #5146A5)" }} /> 3D Controls
                     </div>
                     <button className="studio-hud-btn" style={{ width: 22, height: 22 }} onClick={() => setShowGestureGuide(false)} title="Dismiss">
                       <X size={12} />
@@ -926,6 +953,15 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
 
               {/* ── HUD Navigation Controls ── */}
               <div className="studio-hud-controls" role="group" aria-label="Camera controls">
+                <button
+                  className={`studio-hud-btn${showLabels ? " active" : ""}`}
+                  onClick={() => setShowLabels((l) => !l)}
+                  title={showLabels ? "Hide room labels" : "Show room labels"}
+                  aria-label={showLabels ? "Hide room labels" : "Show room labels"}
+                  aria-pressed={showLabels}
+                >
+                  <Tag size={15} />
+                </button>
                 <button className="studio-hud-btn" onClick={() => sceneRef.current?.zoomIn()} title="Zoom in"><ZoomIn size={15} /></button>
                 <button className="studio-hud-btn" onClick={() => sceneRef.current?.zoomOut()} title="Zoom out"><ZoomOut size={15} /></button>
                 <button className="studio-hud-btn" onClick={handleFitToView} title="Fit to view"><Maximize2 size={14} /></button>
@@ -971,9 +1007,9 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
 
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                           {(() => { const meta = getRoomMeta(selected.type); const Icon = meta.icon; return (
-                            <div className="studio-type-badge"><Icon size={12} style={{ color: "#5146A5" }} /><span>{meta.label}</span></div>
+                            <div className="studio-type-badge"><Icon size={12} style={{ color: "var(--c-5146A5, #5146A5)" }} /><span>{meta.label}</span></div>
                           ); })()}
-                          <div className="studio-type-badge" style={{ background: "#F6F5F2", borderColor: "#E5E1D8" }}>
+                          <div className="studio-type-badge" style={{ background: "var(--c-F6F5F2, #F6F5F2)", borderColor: "var(--c-E5E1D8, #E5E1D8)" }}>
                             <Layers size={11} /><span>{selectedLevelIndex !== null ? floorName(selectedLevelIndex) : "Ground Floor"}</span>
                           </div>
                         </div>
@@ -1000,7 +1036,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           <button
                             className="button primary"
-                            style={{ background: "#6D28D9" }}
+                            style={{ background: "var(--c-6D28D9, #6D28D9)" }}
                             onClick={() => setShowInteriorModal(true)}
                           >
                             <Paintbrush size={14} style={{ marginRight: 5 }} /> Furnish & Style {selected.name}
@@ -1023,10 +1059,10 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                         <div className="studio-floor-mgmt-card">
                           <div className="studio-floor-mgmt-header">
                             <div>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: "#302A65", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                              <div style={{ fontSize: 11, fontWeight: 800, color: "var(--c-302A65, #302A65)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                                 Building Floors
                               </div>
-                              <div style={{ fontSize: 10, color: "#7D7896", marginTop: 2 }}>
+                              <div style={{ fontSize: 10, color: "var(--c-7D7896, #7D7896)", marginTop: 2 }}>
                                 {levelCount} floor{levelCount !== 1 ? "s" : ""} · {visibleCount} visible
                               </div>
                             </div>
@@ -1039,7 +1075,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
 
                           {/* All-floors option */}
                           <div
-                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderRadius: 8, background: topLevel === undefined ? "#302A65" : "#FFFFFF", color: topLevel === undefined ? "#FFF4D6" : "#302A65", border: "1px solid #EAE5F6", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderRadius: 8, background: topLevel === undefined ? "#302A65" : "#FFFFFF", color: topLevel === undefined ? "#FFF4D6" : "#302A65", border: "1px solid var(--c-EAE5F6, #EAE5F6)", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
                             onClick={() => { setTopLevel(undefined); showToast("Showing all floors"); }}
                           >
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1061,9 +1097,9 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                                   <span className="studio-floor-circle" style={{ flexShrink: 0, opacity: isHidden ? 0.5 : 1 }}>{lv === 0 ? "G" : lv}</span>
                                   <div>
                                     <div style={{ fontSize: 11.5, fontWeight: 700, color: isHidden ? "#999" : "#1D1A40" }}>
-                                      {floorName(lv)}{isHidden && <span style={{ color: "#B8A060", fontSize: 10, marginLeft: 5 }}>HIDDEN</span>}
+                                      {floorName(lv)}{isHidden && <span style={{ color: "var(--c-B8A060, #B8A060)", fontSize: 10, marginLeft: 5 }}>HIDDEN</span>}
                                     </div>
-                                    <div style={{ fontSize: 10, color: "#7D7896" }}>{lvlRooms.length} rooms</div>
+                                    <div style={{ fontSize: 10, color: "var(--c-7D7896, #7D7896)" }}>{lvlRooms.length} rooms</div>
                                   </div>
                                 </div>
 
@@ -1128,7 +1164,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
 
                         {/* Rooms directory */}
                         <div>
-                          <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.07em", color: "#7D7896", marginBottom: 8 }}>
+                          <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--c-7D7896, #7D7896)", marginBottom: 8 }}>
                             Rooms (click to inspect)
                           </div>
                           <div className="studio-room-list">
@@ -1141,7 +1177,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                               return (
                                 <button key={room.id} className={`studio-room-item${selectedRoomId === room.id ? " selected" : ""}`} onClick={() => handleRoomSelect(room.id)}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <Icon size={13} style={{ color: "#5146A5" }} />
+                                    <Icon size={13} style={{ color: "var(--c-5146A5, #5146A5)" }} />
                                     <span>{room.name}</span>
                                   </div>
                                   <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 500 }}>{area} {plan.units === "ft" ? "sq ft" : "m²"}</span>
@@ -1164,7 +1200,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                         <h2 className="studio-inspector-title">Customize Look</h2>
                       </div>
                     </div>
-                    <p style={{ fontSize: 12, color: "#7D7896", margin: 0, lineHeight: 1.5 }}>
+                    <p style={{ fontSize: 12, color: "var(--c-7D7896, #7D7896)", margin: 0, lineHeight: 1.5 }}>
                       Choose an architectural style. Layout and room positions are preserved — only materials and colours change.
                     </p>
 
@@ -1215,6 +1251,8 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
         initialRoomId={selectedRoomId}
         selectedFurnitureId={selectedFurnitureId}
         onSelectFurniture={setSelectedFurnitureId}
+        onSave={save}
+        saving={saving}
       />
 
       {plan && (
@@ -1227,19 +1265,10 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
             showToast("Applied terrace layout to 3D model");
           }}
           terraceConfig={terraceConfig}
-          onUpdateTerraceConfig={setTerraceConfig}
+          onUpdateTerraceConfig={(cfg) => { setTerraceConfig(cfg); pushPlan({ ...plan, terraceConfig: cfg as unknown as Record<string, unknown> }); }}
           exteriorConfig={exteriorConfig}
-          onUpdateExteriorConfig={setExteriorConfig}
+          onUpdateExteriorConfig={(cfg) => { setExteriorConfig(cfg); pushPlan({ ...plan, exteriorConfig: cfg as unknown as Record<string, unknown> }); }}
           onViewTerrace={() => { sceneRef.current?.viewTerrace?.(); setShowTerraceModal(false); showToast("Camera moved to rooftop terrace"); }}
-        />
-      )}
-
-      {plan && (
-        <ArchitecturalAnalysisModal
-          isOpen={showAnalysisModal}
-          onClose={() => setShowAnalysisModal(false)}
-          plan={plan}
-          onUpdateSunPosition={setLiveSunPosition}
         />
       )}
 
@@ -1254,6 +1283,32 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
           initialTab="3d"
         />
       )}
+
+      {/* Structural Planning & Column Alignment Modal */}
+      {showStructuralModal && plan && (
+        <StructuralPlanningModal
+          isOpen={showStructuralModal}
+          onClose={() => setShowStructuralModal(false)}
+          plan={plan}
+          onUpdatePlan={(updated) => {
+            pushPlan(updated);
+            showToast("Updated structural grid and columns");
+          }}
+        />
+      )}
+
+      {/* Beta Feedback & Bug Reporting Modal */}
+      <FeedbackModal
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        plan={plan}
+      />
+
+      {/* Version Information & Changelog Modal */}
+      <VersionModal
+        isOpen={showAppVersionModal}
+        onClose={() => setShowAppVersionModal(false)}
+      />
     </div>
   );
 }

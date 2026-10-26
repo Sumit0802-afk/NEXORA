@@ -1,11 +1,14 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.deps import get_current_user
 from app.core.config import settings
-from app.api.routes import health, projects, generation, validation
+from app.api.routes import auth, generation, health, library, projects, validation
 from app.db.models import Base
 from app.db.session import SessionLocal, engine
+from app.db.migrate import ensure_auth_columns
 from app.db.seed import ensure_demo_user
+from app.domain.library import catalog
 
 app = FastAPI(
     title="NEXORA API",
@@ -19,8 +22,11 @@ def on_startup() -> None:
     # Dev convenience: create any missing tables. database/migrations/001_initial_schema.sql
     # remains the canonical schema for a real Postgres deployment.
     Base.metadata.create_all(bind=engine)
+    ensure_auth_columns(engine)
     with SessionLocal() as db:
         ensure_demo_user(db)
+    if settings.library_autobuild:
+        catalog.build_in_background(settings.library_size)
 
 origins = [origin.strip() for origin in settings.api_cors_origins.split(",") if origin.strip()]
 app.add_middleware(
@@ -35,7 +41,9 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
-app.include_router(generation.router, prefix="/api")
-app.include_router(generation.layouts_router, prefix="/api")
-app.include_router(validation.router, prefix="/api")
+app.include_router(library.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(generation.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(generation.layouts_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(validation.router, prefix="/api", dependencies=[Depends(get_current_user)])

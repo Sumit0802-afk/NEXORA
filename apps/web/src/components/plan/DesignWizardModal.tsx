@@ -110,7 +110,7 @@ export function DesignWizardModal({
         <header className="design-wizard-header">
           <div className="design-wizard-title-group">
             <div className="design-wizard-badge">
-              <Sparkles size={13} style={{ color: "#7B68EE" }} />
+              <Sparkles size={13} style={{ color: "var(--c-7B68EE, #7B68EE)" }} />
               <span>Architectural Design Studio</span>
             </div>
             <h2>Choose Your Architectural House Layout</h2>
@@ -173,14 +173,14 @@ export function DesignWizardModal({
         <div className="design-wizard-specs-bar">
           <div className="design-wizard-specs-left">
             <span className="design-wizard-spec-pill">
-              <Ruler size={13} style={{ color: "#5146A5" }} />
+              <Ruler size={13} style={{ color: "var(--c-5146A5, #5146A5)" }} />
               <span>Plot: {plotWidth} × {plotLength} {plotUnits} ({plotWidth * plotLength} sq {plotUnits})</span>
             </span>
 
             {/* Storey Selector */}
             <div className="design-wizard-floors-toggle">
               <span className="design-wizard-floors-label">
-                <Layers size={13} style={{ color: "#5146A5" }} />
+                <Layers size={13} style={{ color: "var(--c-5146A5, #5146A5)" }} />
                 <span>Storeys:</span>
               </span>
               {[1, 2, 3].map((f) => (
@@ -201,7 +201,7 @@ export function DesignWizardModal({
 
           <div className="design-wizard-specs-right">
             <span className="design-wizard-valid-badge">
-              <ShieldCheck size={14} style={{ color: "#10B981" }} />
+              <ShieldCheck size={14} style={{ color: "var(--c-10B981, #10B981)" }} />
               <span>100% Validated against plot boundary</span>
             </span>
           </div>
@@ -245,11 +245,6 @@ export function DesignWizardModal({
                         <span title="Natural lighting rating">
                           ☀️ {spec.lightRating}
                         </span>
-                        {spec.vastuScore && (
-                          <span title="Vastu compliance score" style={{ color: "#D97706" }}>
-                            🕉️ {spec.vastuScore}%
-                          </span>
-                        )}
                       </div>
                     </div>
 
@@ -364,7 +359,7 @@ export function DesignWizardModal({
               <div className="design-wizard-terrace-section">
                 <div className="design-wizard-terrace-head">
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <Sun size={14} style={{ color: "#D97706" }} />
+                    <Sun size={14} style={{ color: "var(--c-D97706, #D97706)" }} />
                     <strong>Rooftop Terrace Structural Design</strong>
                   </div>
                   <small>Modifies actual top-floor rooms, walls, parapets & geometry</small>

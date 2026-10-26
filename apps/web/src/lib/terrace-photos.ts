@@ -1,0 +1,80 @@
+/** Real photographs from Wikimedia Commons, used under their Creative Commons / public-domain licenses. */
+export interface TerracePhoto { id: string; caption: string; author: string; license: string; source: string; width: number; height: number }
+
+export const TERRACE_PHOTOS: TerracePhoto[] = [
+  {"id": "photo-01", "caption": "Rooftop cafe terrace with timber tables", "author": "Backpackingmate", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Brisbane_City_YHA_rooftop.jpg", "width": 560, "height": 374},
+  {"id": "photo-02", "caption": "Terrace dining beside a historic skyline", "author": "Rodrigo Rodríguez Fuentes", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Cafeteria_del_Museo_Amparo.JPG", "width": 560, "height": 373},
+  {"id": "photo-03", "caption": "Glass pavilion with deck and lounge seating", "author": "Dakterras.nl ontwerper: Dakterras.nl", "license": "Public domain", "source": "https://commons.wikimedia.org/wiki/File:Dakterras_Amsterdam.jpg", "width": 560, "height": 373},
+  {"id": "photo-04", "caption": "Rooftop pool deck with shade sails", "author": "Kstranger", "license": "CC0", "source": "https://commons.wikimedia.org/wiki/File:Feliz_Hotel.jpg", "width": 560, "height": 420},
+  {"id": "photo-05", "caption": "Glass-roofed rooftop veranda", "author": "Aro1987", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:IMG-20180405-WA0002.jpg", "width": 560, "height": 420},
+  {"id": "photo-06", "caption": "Lounge terrace with planters and sofas", "author": "Joseolgon", "license": "CC BY 4.0", "source": "https://commons.wikimedia.org/wiki/File:Park_Heights_07.jpg", "width": 560, "height": 373},
+  {"id": "photo-07", "caption": "Paved open terrace with steel railing", "author": "Joseolgon", "license": "CC BY 4.0", "source": "https://commons.wikimedia.org/wiki/File:Park_Heights_08.jpg", "width": 560, "height": 373},
+  {"id": "photo-08", "caption": "Glazed corner room on a roof terrace", "author": "Joseolgon", "license": "CC BY 4.0", "source": "https://commons.wikimedia.org/wiki/File:Park_Heights_11.jpg", "width": 560, "height": 373},
+  {"id": "photo-09", "caption": "Landscaped roof with pergola frames", "author": "Arkke", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Redi_Bryga.jpg", "width": 560, "height": 420},
+  {"id": "photo-10", "caption": "Turf roof lawn with steel pergola", "author": "JIP", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Redi_roof_terrace.jpg", "width": 560, "height": 420},
+  {"id": "photo-11", "caption": "Tiled terrace with umbrellas and dining sets", "author": "Arnaud 25", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Riad_Maroc_022.JPG", "width": 560, "height": 420},
+  {"id": "photo-12", "caption": "Stone-paved roof terrace with shade sails", "author": "RileyOne", "license": "CC BY-SA 2.0", "source": "https://commons.wikimedia.org/wiki/File:Roof_Space.jpg", "width": 560, "height": 420},
+  {"id": "photo-13", "caption": "Covered terrace with pool and loungers", "author": "Matti Blume", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Rooftop_pool,_Ayawaso_West_(IMG_20230208_084332).jpg", "width": 560, "height": 415},
+  {"id": "photo-14", "caption": "Green roof courtyard on an apartment block", "author": "Rodhullandemu", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Rooftop_terrace_of_The_Lexington,_Liverpool.jpg", "width": 560, "height": 312},
+  {"id": "photo-15", "caption": "Plaza terrace with olive trees and benches", "author": "BrokenSphere", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:343_Sansome_St._roof_garden,_SF_1.JPG", "width": 560, "height": 420},
+  {"id": "photo-16", "caption": "Rooftop plaza with planted trees and seating", "author": "BrokenSphere", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:343_Sansome_St._roof_garden,_SF_2.JPG", "width": 560, "height": 420},
+  {"id": "photo-17", "caption": "Compact terrace with umbrella and chairs", "author": "Feetuphostels", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Terrace_Hostels.JPG", "width": 560, "height": 420},
+  {"id": "photo-18", "caption": "Modular deck lounge seen from above", "author": "Roland zh, upload on 6. April 2009", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Z%C3%BCrich_-_Lindenhof_IMG_2036.JPG", "width": 560, "height": 420},
+  {"id": "photo-19", "caption": "Tiled terrace with traditional blue mosaic", "author": "Patrick Nouhailler", "license": "CC BY-SA 2.0", "source": "https://commons.wikimedia.org/wiki/File:%D9%85%D8%AF%D9%8A%D9%86%D8%A9_%D8%A7%D9%84%D8%B5%D9%88%D9%8A%D8%B1%D8%A9_%D8%A7%D9%84%D9%85%D8%BA%D8%B1%D8%A8%D9%8A%D8%A9.jpg", "width": 560, "height": 373},
+  {"id": "photo-20", "caption": "Courtyard roof garden over a heritage building", "author": "Andy Hawkins", "license": "CC BY-SA 2.0", "source": "https://commons.wikimedia.org/wiki/File:006_Down_the_cable.jpg", "width": 560, "height": 373},
+  {"id": "photo-21", "caption": "Sedum green roof", "author": "Pgccmarketing", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:06-29-2015_CHS_green_roof-2-4.jpg", "width": 560, "height": 373},
+  {"id": "photo-22", "caption": "Timber deck garden with raised planters", "author": "Waltie", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Daktuin_Zwolse_bibliotheek_de_Stadskamer.jpg", "width": 560, "height": 420},
+  {"id": "photo-23", "caption": "Terracotta terrace garden with potted palms", "author": "Wikimedia Commons contributor", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:DirkvdM_casa_grande_roof_terrace.jpg", "width": 560, "height": 420},
+  {"id": "photo-24", "caption": "Pergola terrace overlooking the city", "author": "Christian140", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Garden_at_Toegye_Hall_of_Humanities_(2).jpg", "width": 560, "height": 316},
+  {"id": "photo-25", "caption": "Terraced green roofs on residential blocks", "author": "Hardscarf", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Groningen_-_Fongersplaats_-_daktuin.jpg", "width": 560, "height": 560},
+  {"id": "photo-26", "caption": "Meadow-style green roof", "author": "LifeTimeComment", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:MCER_dach-bagienny.jpg", "width": 560, "height": 272},
+  {"id": "photo-27", "caption": "Roof terrace with outdoor oven and planters", "author": "Wolfgang Sauber", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Piran_Campanile_-_Dachgarten.jpg", "width": 560, "height": 420},
+  {"id": "photo-28", "caption": "Green roof with flowering sedum", "author": "I99pema", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Sveav%C3%A4gen_44,_takterass_-02.JPG", "width": 560, "height": 420},
+  {"id": "photo-29", "caption": "Wooden screen deck on a green roof", "author": "I99pema", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Sveav%C3%A4gen_44,_takterass_-03.JPG", "width": 560, "height": 420},
+  {"id": "photo-30", "caption": "Deck lounge with Adirondack chairs", "author": "I99pema", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Sveav%C3%A4gen_44,_takterass_-04.JPG", "width": 560, "height": 420},
+  {"id": "photo-31", "caption": "Rooftop gardens beside a courtyard", "author": "Manuel Schmalstieg", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Vue_toit_immeuble_codha_jardin_urbain.jpg", "width": 560, "height": 420},
+];
+
+export const terracePhotoSrc = (id: string) => `/images/terrace/${id}.jpg`;
+
+/** Layout cards that have a matching real photograph. */
+export const LAYOUT_PHOTOS: Record<string, string> = {
+  open: "photo-07",
+  garden: "photo-22",
+  pergola: "photo-24",
+  covered: "photo-13",
+  lounge: "photo-03",
+  outdoor_dining: "photo-01",
+  traditional_indian: "photo-19",
+};
+
+/** Photo for each option card, keyed `group:id`. Same credit fields as TERRACE_PHOTOS. */
+export const CARD_PHOTOS: Record<string, TerracePhoto> = {
+  "layout:solar": {"id": "layout-solar", "caption": "Energia Fotovoltaica Ecori 0001.jpg", "author": "Ecori", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Energia_Fotovoltaica_Ecori_0001.jpg", "width": 560, "height": 306},
+  "layout:utility": {"id": "layout-utility", "caption": "Horta no terraço (16390945154).jpg", "author": "Wagner Tamanaha from Sao Paulo, Brazil", "license": "CC BY-SA 2.0", "source": "https://commons.wikimedia.org/wiki/File:Horta_no_terra%C3%A7o_(16390945154).jpg", "width": 420, "height": 560},
+  "layout:covered": {"id": "layout-covered", "caption": "Argostoli Napier gazebo.JPG", "author": "George Tekmenidis", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Argostoli_Napier_gazebo.JPG", "width": 560, "height": 420},
+  "rail:glass": {"id": "rail-glass", "caption": "Brisbane City YHA rooftop.jpg", "author": "Backpackingmate", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Brisbane_City_YHA_rooftop.jpg", "width": 560, "height": 374},
+  "rail:metal_slats": {"id": "rail-metal_slats", "caption": "Park Heights 08.jpg", "author": "Joseolgon", "license": "CC BY 4.0", "source": "https://commons.wikimedia.org/wiki/File:Park_Heights_08.jpg", "width": 560, "height": 373},
+  "rail:jali": {"id": "rail-jali", "caption": "Pierced Screen (jali), India, Mughal period, c. 1580 AD, sandstone - Arthur M. Sackler Museum, Harvard University - DSC01106.jpg", "author": "Daderot", "license": "Public domain", "source": "https://commons.wikimedia.org/wiki/File:Pierced_Screen_(jali),_India,_Mughal_period,_c._1580_AD,_sandstone_-_Arthur_M._Sackler_Museum,_Harvard_University_-_DSC01106.jpg", "width": 403, "height": 560},
+  "rail:baluster": {"id": "rail-baluster", "caption": "On my knees (2081987514).jpg", "author": "Anderson Mancini from Sao Paulo, Brazil", "license": "CC BY 2.0", "source": "https://commons.wikimedia.org/wiki/File:On_my_knees_(2081987514).jpg", "width": 560, "height": 373},
+  "rail:solid_parapet": {"id": "rail-solid_parapet", "caption": "Roof terrace in Germany.jpg", "author": "Colling-architektur", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Roof_terrace_in_Germany.jpg", "width": 560, "height": 420},
+  "shade:none": {"id": "shade-none", "caption": "Nice - panoramio - Uldis Osis.jpg", "author": "Uldis Osis", "license": "CC BY 3.0", "source": "https://commons.wikimedia.org/wiki/File:Nice_-_panoramio_-_Uldis_Osis.jpg", "width": 560, "height": 378},
+  "shade:pergola": {"id": "shade-pergola", "caption": "Cubola.jpg", "author": "AVZ group", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Cubola.jpg", "width": 560, "height": 373},
+  "shade:covered_pavilion": {"id": "shade-covered_pavilion", "caption": "20230614 116 Shahrisabz.jpg", "author": "Jean Housen", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:20230614_116_Shahrisabz.jpg", "width": 560, "height": 373},
+  "shade:sky_lounge": {"id": "shade-sky_lounge", "caption": "IMG-20180405-WA0002.jpg", "author": "Aro1987", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:IMG-20180405-WA0002.jpg", "width": 560, "height": 420},
+  "shade:solar_rack": {"id": "shade-solar_rack", "caption": "Enerix Photovoltaik.jpg", "author": "Enerix-knuth", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Enerix_Photovoltaik.jpg", "width": 560, "height": 420},
+  "shade:indian_chhatri": {"id": "shade-indian_chhatri", "caption": "Chattri 01.jpg", "author": "Joe Mabel", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Chattri_01.jpg", "width": 420, "height": 560},
+  "facade:modern": {"id": "facade-modern", "caption": "Julian Rose House (c.1954) in Wahroonga NSW, Australia.jpg", "author": "Matt Stone", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Julian_Rose_House_(c.1954)_in_Wahroonga_NSW,_Australia.jpg", "width": 560, "height": 371},
+  "facade:contemporary": {"id": "facade-contemporary", "caption": "Lipsett House.JPG", "author": "Oculusdesign", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org/wiki/File:Lipsett_House.JPG", "width": 560, "height": 418},
+  "facade:traditional_indian": {"id": "facade-traditional_indian", "caption": "Havelis at Dharmaj 13.jpg", "author": "KHC Khushtar Heritage", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Havelis_at_Dharmaj_13.jpg", "width": 420, "height": 560},
+  "facade:luxury": {"id": "facade-luxury", "caption": "Les maison..jpg", "author": "Kougbadi", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Les_maison..jpg", "width": 560, "height": 420},
+  "facade:minimalist": {"id": "facade-minimalist", "caption": "Hasselbladstiftelsen.JPG", "author": "Raphael Saulus", "license": "Public domain", "source": "https://commons.wikimedia.org/wiki/File:Hasselbladstiftelsen.JPG", "width": 512, "height": 560},
+  "furn:outdoor_sofa": {"id": "furn-outdoor_sofa", "caption": "Bench in the Old Palace Garden Hatfield House Hertfordshire England.jpg", "author": "Acabashi", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Bench_in_the_Old_Palace_Garden_Hatfield_House_Hertfordshire_England.jpg", "width": 560, "height": 405},
+  "furn:outdoor_coffee_table": {"id": "furn-outdoor_coffee_table", "caption": "Garden furniture at Nuthurst West Sussex England.jpg", "author": "Acabashi", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Garden_furniture_at_Nuthurst_West_Sussex_England.jpg", "width": 560, "height": 373},
+  "furn:sun_lounger": {"id": "furn-sun_lounger", "caption": "Sun bathing chairs at Parnell Baths.jpg", "author": "Cleemmoo", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Sun_bathing_chairs_at_Parnell_Baths.jpg", "width": 560, "height": 420},
+  "furn:outdoor_dining_set": {"id": "furn-outdoor_dining_set", "caption": "Prinknash Abbey Walled Garden outdoor table and chairs Upton St Leonards Gloucestershire England.jpg", "author": "Acabashi", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:Prinknash_Abbey_Walled_Garden_outdoor_table_and_chairs_Upton_St_Leonards_Gloucestershire_England.jpg", "width": 560, "height": 373},
+  "furn:planter_box": {"id": "furn-planter_box", "caption": "53rd St Bway 7th Av 05 - 1700 Broadway.jpg", "author": "Tdorante10", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:53rd_St_Bway_7th_Av_05_-_1700_Broadway.jpg", "width": 560, "height": 420},
+  "furn:terracotta_planter": {"id": "furn-terracotta_planter", "caption": "BlancoWorkshop34.JPG", "author": "AlejandroLinaresGarcia", "license": "CC BY-SA 4.0", "source": "https://commons.wikimedia.org/wiki/File:BlancoWorkshop34.JPG", "width": 560, "height": 372},
+  "furn:bbq_grill": {"id": "furn-bbq_grill", "caption": "2010 in Photos (4930584429).jpg", "author": "cogdogblog", "license": "CC BY 2.0", "source": "https://commons.wikimedia.org/wiki/File:2010_in_Photos_(4930584429).jpg", "width": 560, "height": 373},
+  "furn:indian_jhula": {"id": "furn-indian_jhula", "caption": "Neat Porch Swing - Flickr - 'Playingwithbrushes'.jpg", "author": "'Playingwithbrushes'", "license": "CC BY 2.0", "source": "https://commons.wikimedia.org/wiki/File:Neat_Porch_Swing_-_Flickr_-_%27Playingwithbrushes%27.jpg", "width": 560, "height": 505},
+};

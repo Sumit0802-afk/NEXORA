@@ -61,6 +61,35 @@ export const OpeningSchema = z.object({
   sillHeight: z.number().nonnegative().optional()
 });
 
+export const ColumnSchema = z.object({
+  id: z.string(),
+  position: PointSchema,
+  shape: z.enum(["rectangle", "circular"]).default("rectangle"),
+  width: z.number().positive().default(0.75),
+  depth: z.number().positive().default(0.75),
+  rotation: z.number().default(0),
+  material: z.string().default("reinforced_concrete"),
+}).passthrough();
+
+export const BeamSchema = z.object({
+  id: z.string(),
+  start: PointSchema,
+  end: PointSchema,
+  width: z.number().positive().default(0.75),
+  depth: z.number().positive().default(1.25),
+  kind: z.enum(["primary", "secondary", "plinth"]).default("primary"),
+}).passthrough();
+
+export const FoundationFootingSchema = z.object({
+  id: z.string(),
+  columnId: z.string().optional(),
+  position: PointSchema,
+  width: z.number().positive().default(3.5),
+  length: z.number().positive().default(3.5),
+  depth: z.number().positive().default(1.5),
+  type: z.enum(["isolated", "combined", "raft"]).default("isolated"),
+}).passthrough();
+
 export const FloorPlanSchema = z.object({
   schemaVersion: z.literal(1),
   projectId: z.string(),
@@ -78,8 +107,14 @@ export const FloorPlanSchema = z.object({
     rooms: z.array(RoomSchema),
     walls: z.array(WallSchema),
     openings: z.array(OpeningSchema),
-    furniture: z.array(z.union([FurnitureItemSchema, z.record(z.unknown())])).default([])
+    furniture: z.array(z.union([FurnitureItemSchema, z.record(z.unknown())])).default([]),
+    columns: z.array(ColumnSchema).optional(),
+    beams: z.array(BeamSchema).optional(),
+    foundations: z.array(FoundationFootingSchema).optional()
   })),
+  /** Terrace and exterior options chosen in the 3D designer; stored with the plan so they reopen as saved. */
+  terraceConfig: z.record(z.unknown()).optional(),
+  exteriorConfig: z.record(z.unknown()).optional(),
   metadata: z.object({
     version: z.number().int().positive(),
     status: z.enum(["draft", "generated", "reviewed"]).default("draft")
@@ -93,4 +128,7 @@ export type RoomInterior = z.infer<typeof RoomInteriorSchema>;
 export type FurnitureItem = z.infer<typeof FurnitureItemSchema>;
 export type Wall = z.infer<typeof WallSchema>;
 export type Opening = z.infer<typeof OpeningSchema>;
+export type Column = z.infer<typeof ColumnSchema>;
+export type Beam = z.infer<typeof BeamSchema>;
+export type FoundationFooting = z.infer<typeof FoundationFootingSchema>;
 

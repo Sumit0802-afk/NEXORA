@@ -189,6 +189,22 @@ export function generateSingleFloorSvg(
     }
   });
 
+  // Terrace furniture (seating, planters, pergola, path…) so the terrace layout appears in sheets and exports
+  ((level.furniture ?? []) as Array<{ category?: string; name?: string; type?: string; position?: number[]; rotation?: number; scale?: number[]; dimensions?: { width: number; depth: number }; material?: { color?: string } }>)
+    .filter((f) => f.category === "terrace" && f.position && f.dimensions)
+    .forEach((f) => {
+      const odd = Math.round((f.rotation ?? 0) / (Math.PI / 2)) % 2 !== 0;
+      const w = f.dimensions!.width * (f.scale?.[0] ?? 1);
+      const d = f.dimensions!.depth * (f.scale?.[2] ?? 1);
+      const fw = odd ? d : w;
+      const fd = odd ? w : d;
+      const path = f.type === "walking_path";
+      const color = typeof f.material?.color === "string" ? f.material.color : "#9A8F6F";
+      svgParts.push(
+        `<rect x="${f.position![0] - fw / 2}" y="${f.position![1] - fd / 2}" width="${fw}" height="${fd}" rx="${Math.min(fw, fd) * 0.1}" fill="${color}" fill-opacity="${path ? 0.3 : 0.8}" stroke="#4B4375" stroke-width="${wallStroke * 0.3}"><title>${String(f.name ?? "").replace(/[<&>]/g, "")}</title></rect>`
+      );
+    });
+
   // Walls
   level.walls.forEach((w) => {
     const isInterior = w.kind === "interior";

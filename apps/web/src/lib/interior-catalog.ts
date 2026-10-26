@@ -911,3 +911,22 @@ export function autoFurnishRoom(room: Room, levelId: string): FurnitureItem[] {
 
   return items;
 }
+
+/** Furniture categories that make sense for a room type (e.g. no beds in a bathroom). */
+export function categoriesForRoom(type: RoomType): FurnitureCategory[] {
+  switch (type) {
+    case "bedroom": return ["bedroom", "other"];
+    case "kitchen": return ["kitchen", "dining_room"];
+    case "bathroom": return ["bathroom"];
+    case "living_room": return ["living_room", "other"];
+    case "dining_room": return ["dining_room", "living_room"];
+    case "study": return ["other", "living_room"];
+    default: return ["other"];
+  }
+}
+
+/** Catalog items suited to a room type. */
+export function catalogForRoom(type: RoomType): FurnitureCatalogItem[] {
+  const cats = categoriesForRoom(type);
+  return FURNITURE_CATALOG.filter((item) => cats.includes(item.category));
+}

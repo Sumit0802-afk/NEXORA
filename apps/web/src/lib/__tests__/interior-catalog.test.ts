@@ -208,3 +208,16 @@ describe("Interior Designer Catalog & Utilities", () => {
     expect(validation.warnings[0]).toContain("outside the walls");
   });
 });
+
+describe("catalogForRoom", () => {
+  it("offers only room-appropriate furniture", async () => {
+    const { catalogForRoom } = await import("../interior-catalog");
+    expect(catalogForRoom("bathroom").every((i) => i.category === "bathroom")).toBe(true);
+    expect(catalogForRoom("bathroom").length).toBeGreaterThan(0);
+    for (const t of ["bedroom", "kitchen", "living_room", "dining_room"] as const) {
+      expect(catalogForRoom(t).length).toBeGreaterThan(0);
+    }
+    expect(catalogForRoom("kitchen").some((i) => i.category === "bedroom")).toBe(false);
+    expect(catalogForRoom("bedroom").some((i) => i.category === "kitchen")).toBe(false);
+  });
+});

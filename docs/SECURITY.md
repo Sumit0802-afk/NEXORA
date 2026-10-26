@@ -1,6 +1,8 @@
 # Security checklist
 
-- [ ] Add authentication and validate identity on every API request.
+- [x] Authentication: email + password (scrypt), server-side sessions in an httpOnly SameSite=Lax cookie, origin check on writes, login throttling. All project, layout and validation routes require a session and projects are owner-scoped.
+- [x] Email verification: 6-digit one-time code (10 min expiry, 5 attempts, single use, hashed at rest, 60 s resend cooldown). Accounts cannot sign in until verified. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` in `services/api/.env`; without SMTP the code is only logged when `APP_ENV=development`, otherwise registration fails with a clear error.
+- [ ] Still open: password reset, rate limiting that survives restarts / multiple workers (the login throttle is in-memory).
 - [ ] Enforce project ownership/role permissions server-side.
 - [ ] Keep smart provider keys and storage secrets server-side only.
 - [ ] Rate-limit project creation, generation and export endpoints.

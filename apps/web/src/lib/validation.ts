@@ -1,5 +1,6 @@
 import type { FloorPlan, Room } from "@houseplan/design-schema";
 import { floorName } from "./floors";
+import { validateCirculation } from "./circulation";
 
 export type ValidationIssue = {
   id: string;
@@ -48,6 +49,7 @@ export function validateDesign(plan: FloorPlan): ValidationIssue[] {
       });
     }
   });
+  issues.push(...validateCirculation(plan));
   return issues;
 }
 

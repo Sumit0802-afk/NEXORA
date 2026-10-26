@@ -215,7 +215,7 @@ export function WalkthroughHUD({
             onClick={() => setRoomDropdownOpen((v) => !v)}
             title="Teleport to any room"
           >
-            <Navigation size={13} style={{ color: "#5146A5" }} />
+            <Navigation size={13} style={{ color: "var(--c-5146A5, #5146A5)" }} />
             <span>Go to Room</span>
             <ChevronDown size={12} />
           </button>
@@ -317,7 +317,7 @@ export function WalkthroughHUD({
         <div className="walkthrough-guide-card">
           <div className="walkthrough-guide-header">
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <Footprints size={15} style={{ color: "#5146A5" }} />
+              <Footprints size={15} style={{ color: "var(--c-5146A5, #5146A5)" }} />
               <strong>Interactive 3D Walkthrough</strong>
             </div>
             <button

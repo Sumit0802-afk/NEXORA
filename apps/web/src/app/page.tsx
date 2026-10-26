@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { ApiError, deleteProject, duplicateProject, listProjects, renameProject, type ProjectSummary } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
+import { AccountMenu } from "@/components/auth/AccountMenu";
 
 type LoadState = "loading" | "ready" | "error";
 type SortOrder = "updated" | "name" | "created";
@@ -206,11 +207,13 @@ export default function HomePage() {
           <Link href="/new-design" className="rail-link">
             <Plus size={18} /><span className="rail-link-label">Create</span>
           </Link>
+          <Link href="/library" className="rail-link">
+            <LayoutGrid size={18} /><span className="rail-link-label">Designs</span>
+          </Link>
         </nav>
         <div className="rail-bottom">
           <button className="rail-link" aria-label="Help"><CircleHelp size={18} /><span className="rail-link-label">Help</span></button>
           <button className="rail-link" aria-label="Settings"><Settings2 size={18} /><span className="rail-link-label">Settings</span></button>
-          <div className="avatar" title="Profile">S</div>
         </div>
       </aside>
 
@@ -236,7 +239,7 @@ export default function HomePage() {
                 onChange={e => setQuery(e.target.value)} aria-label="Search projects" />
             </label>
             <button className="icon-button" aria-label="Preferences"><Settings2 size={17} strokeWidth={1.9} /></button>
-            <div className="avatar avatar-small" title="Profile">S</div>
+            <AccountMenu />
           </div>
         </header>
 
@@ -259,6 +262,9 @@ export default function HomePage() {
                   <Link className="button open-project-btn" href={openProjectHref}>
                     <FolderOpen size={19} strokeWidth={1.8} /> Open a project
                   </Link>
+                  <Link className="button open-project-btn" href="/library">
+                    <LayoutGrid size={19} strokeWidth={1.8} /> Browse designs
+                  </Link>
                 </div>
                 <div className="hero-chips">
                   <div className="hero-chip">
@@ -280,9 +286,9 @@ export default function HomePage() {
               <div className="hero-image-wrap">
                 {/* Desktop photo has a cleared patch under the card; the mobile crop excludes it. */}
                 <Image className="hero-img-desktop" src="/images/hero-villa-aurora.jpg"
-                  alt="Modern two-storey villa with a blueprint sketch" fill priority sizes="910px" quality={95} />
+                  alt="Modern two-storey villa with a blueprint sketch" fill priority sizes="910px" quality={80} />
                 <Image className="hero-img-mobile" src="/images/hero-villa-aurora-mobile.jpg"
-                  alt="" fill sizes="100vw" quality={95} />
+                  alt="" fill sizes="100vw" quality={80} />
 
                 {/* Floating info card */}
                 <div className="hero-float-card" aria-hidden="true">
