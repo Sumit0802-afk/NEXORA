@@ -1,6 +1,6 @@
 <!-- Header -->
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=venom&height=260&color=0:1B1744,40:302A65,75:5146A5,100:FFF4D6&text=NEXORA&fontColor=FFF4D6&fontSize=84&fontAlignY=42&desc=Design%20homes%20you%20can%20walk%20through&descAlignY=64&descSize=20&animation=twinkling" alt="NEXORA — Design homes you can walk through" width="100%" />
+  <img src="https://capsule-render.vercel.app/api?type=waving&height=220&color=0:000000,50:5146A5,100:302A65&text=NEXORA&fontColor=ffffff&fontSize=80&fontAlignY=38&desc=Design%20homes%20you%20can%20walk%20through.%20One%20plan.%20Every%20view.&descAlignY=60&descSize=20&animation=fadeIn" alt="NEXORA — Design homes you can walk through" width="100%" />
 </p>
 
 <!-- Typing SVG -->
