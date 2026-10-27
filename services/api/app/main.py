@@ -1,3 +1,5 @@
+import os
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,7 +28,11 @@ def on_startup() -> None:
     with SessionLocal() as db:
         ensure_demo_user(db)
     if settings.library_autobuild:
-        catalog.build_in_background(settings.library_size)
+        if os.getenv("VERCEL"):
+            # Serverless: a background thread is frozen once the response is sent, so load the bundled catalogue now.
+            catalog.build(settings.library_size)
+        else:
+            catalog.build_in_background(settings.library_size)
 
 origins = [origin.strip() for origin in settings.api_cors_origins.split(",") if origin.strip()]
 app.add_middleware(

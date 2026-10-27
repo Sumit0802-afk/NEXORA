@@ -24,6 +24,8 @@ from app.domain.requirements import RoomRequirements
 ENGINE_VERSION = "2"
 DEFAULT_TARGET = 1200
 CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache"
+# A prebuilt catalogue shipped with the code, so a read-only / short-lived host (serverless) starts instantly.
+BUNDLED_DIR = Path(__file__).resolve().parents[1] / "data"
 
 PLOT_WIDTHS = (20, 24, 28, 30, 32, 36, 40, 45, 50, 60)
 PLOT_LENGTHS = (30, 36, 40, 45, 50, 60, 70)
@@ -158,14 +160,16 @@ class Catalog:
     # ── building ──
     def build(self, target: int = DEFAULT_TARGET, use_cache: bool = True) -> None:
         self.target = target
-        cache = CACHE_DIR / f"library-v{ENGINE_VERSION}-{target}.json"
-        if use_cache and cache.exists():
-            try:
-                data = json.loads(cache.read_text(encoding="utf8"))
-                self._set({e["id"]: e for e in data})
-                return
-            except (OSError, ValueError, KeyError):
-                pass
+        name = f"library-v{ENGINE_VERSION}-{target}.json"
+        cache = CACHE_DIR / name
+        for source in (cache, BUNDLED_DIR / name):
+            if use_cache and source.exists():
+                try:
+                    data = json.loads(source.read_text(encoding="utf8"))
+                    self._set({e["id"]: e for e in data})
+                    return
+                except (OSError, ValueError, KeyError):
+                    pass
         seen: set[str] = set()
         entries: dict[str, dict[str, Any]] = {}
         for n, recipe in enumerate(_recipes()):

@@ -151,3 +151,8 @@ def test_bad_filters_are_rejected(client):
     assert client.get("/api/library?floors=two").status_code == 422
     assert client.get("/api/library?sort=random").status_code == 422
     assert client.get("/api/library?limit=500").status_code == 422
+
+
+def test_bundled_catalogue_ships_with_the_code():
+    from app.domain import library
+    assert (library.BUNDLED_DIR / f"library-v{library.ENGINE_VERSION}-1200.json").exists()
