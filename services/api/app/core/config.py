@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +32,15 @@ class Settings(BaseSettings):
     # Build the house design library in the background at startup (tests turn this off).
     library_autobuild: bool = True
     library_size: int = 1200
+
+    @field_validator("database_url")
+    @classmethod
+    def _psycopg_url(cls, v: str) -> str:
+        """Hosts such as Neon hand out postgres:// or postgresql:// URLs; SQLAlchemy needs the psycopg 3 driver name."""
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix):]
+        return v
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 
