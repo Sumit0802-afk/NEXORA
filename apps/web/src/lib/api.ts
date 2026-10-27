@@ -1,6 +1,9 @@
 import type { FloorPlan } from "@houseplan/design-schema";
 
-const API_BASE = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}/api`;
+// Local dev talks to the API on :8000. In production leave NEXT_PUBLIC_API_BASE_URL unset: the browser then calls this
+// site's own /api, which Next forwards to the API (see API_PROXY_TARGET in next.config.mjs), keeping the cookie first-party.
+const API_ORIGIN = process.env.NEXT_PUBLIC_API_BASE_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
+const API_BASE = `${API_ORIGIN}/api`;
 
 export class ApiError extends Error {
   constructor(message: string, public status?: number) {
