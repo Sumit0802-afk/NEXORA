@@ -46,6 +46,9 @@ def sender_address() -> str | None:
     """The configured From address, or None if it is missing or not on the project's own (non free-mail) domain."""
     raw = settings.mail_from_address or settings.smtp_from
     addr = parseaddr(raw)[1].strip().lower()
+    if "@" not in addr and settings.allow_personal_smtp:
+        # SMTP_FROM may be just a name (or empty): a personal mailbox sends as its own login anyway.
+        addr = parseaddr(settings.smtp_user)[1].strip().lower()
     if "@" not in addr:
         return None
     domain = addr.rsplit("@", 1)[1]

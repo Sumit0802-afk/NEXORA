@@ -179,3 +179,16 @@ def test_personal_smtp_works_only_when_explicitly_allowed(monkeypatch):
     sent = _sent_messages(monkeypatch)
     mailer.send_otp("a@example.com", "123456", 10)
     assert sent[0][0]["From"] == "NEXORA <me@gmail.com>"
+
+
+def test_smtp_from_needs_no_address_in_personal_mode(monkeypatch):
+    monkeypatch.setattr(settings, "smtp_host", "smtp.gmail.com")
+    monkeypatch.setattr(settings, "smtp_user", "me@gmail.com")
+    monkeypatch.setattr(settings, "smtp_from", "NEXORA")
+    monkeypatch.setattr(settings, "mail_from_address", "")
+    monkeypatch.setattr(settings, "allow_personal_smtp", True)
+    sent = _sent_messages(monkeypatch)
+    mailer.send_otp("a@example.com", "123456", 10)
+    assert sent[0][0]["From"] == "NEXORA <me@gmail.com>"
+    monkeypatch.setattr(settings, "allow_personal_smtp", False)  # strict mode still needs a domain sender
+    assert mailer.sender_address() is None
