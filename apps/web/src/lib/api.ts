@@ -130,14 +130,29 @@ export function generateLayouts(payload: {
   return request<LayoutResult>("/layouts/generate", { method: "POST", body: JSON.stringify(payload) });
 }
 
+/** Sends feedback / contact / support text to the team. The destination inbox is configured on the server only. */
+export function sendSupportMessage(msg: { kind: "feedback" | "contact" | "support"; subject?: string; message: string; email?: string; details?: string }): Promise<{ status: string }> {
+  return request("/support/messages", { method: "POST", body: JSON.stringify(msg) });
+}
+
 export type AuthUser = { id: string; email: string; displayName: string | null; createdAt?: string | null };
 
 export function getCurrentUser(): Promise<AuthUser> {
   return request<AuthUser>("/auth/me");
 }
 
-export function login(email: string, password: string): Promise<AuthUser> {
-  return request<AuthUser>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+/** Step 1 of every sign-in: checks the password and emails a code. No session exists until loginVerify(). */
+export function login(email: string, password: string): Promise<{ otpRequired: true; email: string }> {
+  return request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+}
+
+/** Step 2: the emailed code completes the sign-in and starts the session. */
+export function loginVerify(email: string, code: string): Promise<AuthUser> {
+  return request<AuthUser>("/auth/login/verify", { method: "POST", body: JSON.stringify({ email, code }) });
+}
+
+export function loginResend(email: string): Promise<{ status: string }> {
+  return request("/auth/login/resend", { method: "POST", body: JSON.stringify({ email }) });
 }
 
 /** Registering sends a one-time code by email; the account is only signed in after verifyEmail(). */

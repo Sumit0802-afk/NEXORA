@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.deps import get_current_user
 from app.core.config import settings
-from app.api.routes import auth, generation, health, library, projects, validation
+from app.api.routes import auth, generation, health, library, projects, support, validation
 from app.db.models import Base
 from app.db.session import SessionLocal, engine
 from app.db.migrate import ensure_auth_columns
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
+app.include_router(support.router, prefix="/api")
 app.include_router(library.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(generation.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(generation.layouts_router, prefix="/api", dependencies=[Depends(get_current_user)])

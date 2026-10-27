@@ -1,3 +1,5 @@
+import { sendSupportMessage } from './api';
+
 export interface UserFeedback {
   id: string;
   timestamp: number;
@@ -85,6 +87,14 @@ export async function submitUserFeedback(
   }
 
   trackTelemetryEvent('feedback_submitted', { category: item.category, rating: item.rating });
+  // Also reaches the team privately through the server; the inbox address is never known to the browser.
+  await sendSupportMessage({
+    kind: 'feedback',
+    subject: item.title,
+    message: `[${item.category}, rating ${item.rating}/5] ${item.message}`,
+    email: item.email,
+    details: item.diagnostics ? JSON.stringify(item.diagnostics, null, 2) : undefined,
+  });
   return item;
 }
 

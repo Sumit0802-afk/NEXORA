@@ -16,7 +16,16 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
-    smtp_from: str = ""
+    smtp_from: str = ""  # legacy; prefer MAIL_FROM_ADDRESS
+    # Sender on your own verified domain, e.g. noreply@yourdomain.com. The display name is always "NEXORA".
+    mail_from_address: str = ""
+    # Private destination for feedback / contact / support messages. Server-side only; never sent to a client.
+    support_inbox: str = ""
+    # Testing escape hatch: allow sending through a personal mailbox (Gmail etc.). Recipients then see that personal
+    # address in From. Leave off in production.
+    allow_personal_smtp: bool = False
+    # Public URL of the web app's /email folder (e.g. https://nexora.example.com/email). Empty = image-free email.
+    email_asset_base_url: str = ""
     smtp_starttls: bool = True
 
     # Build the house design library in the background at startup (tests turn this off).

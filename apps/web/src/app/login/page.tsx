@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
-import { ApiError, EMAIL_NOT_VERIFIED, forgotPassword, resendCode, resetPassword } from "@/lib/api";
+import { ApiError, EMAIL_NOT_VERIFIED, forgotPassword, loginResend, resendCode, resetPassword } from "@/lib/api";
 import { safeNext } from "@/lib/auth-redirect";
 import { cleanCode, validateAuth, validateCode, validateReset, type AuthFieldErrors, type AuthMode, type ResetErrors } from "@/lib/auth-validation";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -19,7 +19,7 @@ const COPY: Record<AuthMode, { title: string; sub: string; submit: string; busy:
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const { status, signIn, signUp, verify } = useAuth();
+  const { status, signIn, completeSignIn, signUp, verify } = useAuth();
   const next = safeNext(params.get("next"));
 
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -38,6 +38,8 @@ function LoginForm() {
   const [showNew, setShowNew] = useState(false);
   const [resetErrors, setResetErrors] = useState<ResetErrors>({});
   const [pendingEmail, setPendingEmail] = useState("");
+  // True when the code screen is the second step of signing in (as opposed to verifying a new account).
+  const [signingIn, setSigningIn] = useState(false);
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState<string | undefined>();
   const [cooldown, setCooldown] = useState(0);
@@ -86,14 +88,16 @@ function LoginForm() {
     try {
       if (mode === "signin") {
         await signIn(email.trim(), password);
-        setSuccess("Signed in. Opening your workspace…");
-        router.replace(next);
+        setSigningIn(true);
+        startVerify(email.trim().toLowerCase(), "Password accepted. We emailed a 6-digit sign-in code.");
       } else {
         await signUp(email.trim(), password, name.trim() || undefined);
+        setSigningIn(false);
         startVerify(email.trim().toLowerCase(), "We sent a 6-digit code to your email.");
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 403 && err.message === EMAIL_NOT_VERIFIED) {
+        setSigningIn(false);
         startVerify(email.trim().toLowerCase(), "Your email isn't verified yet. Enter the code we emailed you.");
         return;
       }
@@ -114,6 +118,12 @@ function LoginForm() {
     }
     setBusy(true);
     try {
+      if (signingIn) {
+        await completeSignIn(pendingEmail, code);
+        setSuccess("Signed in. Opening your workspace…");
+        router.replace(next);
+        return;
+      }
       await verify(pendingEmail, code);
       // Account is ready; ask for a normal sign-in instead of logging the person straight in.
       setEmail(pendingEmail);
@@ -137,6 +147,7 @@ function LoginForm() {
     setFormError(null);
     try {
       if (step === "reset") await forgotPassword(pendingEmail);
+      else if (signingIn) await loginResend(pendingEmail);
       else await resendCode(pendingEmail);
       setSuccess("A new code is on its way.");
       setCode("");
@@ -214,6 +225,7 @@ function LoginForm() {
   };
 
   const backToForm = () => {
+    setSigningIn(false);
     setStep("form");
     setSuccess(null);
     setFormError(null);
@@ -272,14 +284,14 @@ function LoginForm() {
         <section className="auth-panel">
           {step === "verify" ? (
             <>
-          <SwingHeading tag="h1">Check your email</SwingHeading>
+          <SwingHeading tag="h1">{signingIn ? "Confirm it’s you" : "Check your email"}</SwingHeading>
           <p className="auth-sub">
             Enter the 6-digit code we sent to <strong className="auth-email-strong">{pendingEmail}</strong>. It expires in 10 minutes.
           </p>
 
-          <form key="verify" className="auth-form" id="auth-verify" onSubmit={submitCode} noValidate aria-label="Verify email">
+          <form key="verify" className="auth-form" id="auth-verify" onSubmit={submitCode} noValidate aria-label={signingIn ? "Confirm sign-in" : "Verify email"}>
             <div className="auth-field">
-              <label htmlFor="auth-code">Verification code</label>
+              <label htmlFor="auth-code">{signingIn ? "Sign-in code" : "Verification code"}</label>
               <input
                 id="auth-code"
                 className={`auth-input auth-code${codeError ? " invalid" : ""}`}
@@ -305,13 +317,13 @@ function LoginForm() {
 
             <div className="auth-actions">
               <button className="auth-submit" type="submit" disabled={busy} aria-busy={busy}>
-                {busy ? <><span className="auth-spinner" aria-hidden="true" />Verifying…</> : "Verify email"}
+                {busy ? <><span className="auth-spinner" aria-hidden="true" />Verifying…</> : signingIn ? "Sign in" : "Verify email"}
               </button>
               <button className="auth-switch" type="button" onClick={resend} disabled={busy || cooldown > 0}>
                 {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
               </button>
             </div>
-            <button type="button" className="auth-link" onClick={backToForm} disabled={busy}>Use a different email</button>
+            <button type="button" className="auth-link" onClick={backToForm} disabled={busy}>{signingIn ? "Back to sign in" : "Use a different email"}</button>
           </form>
             </>
           ) : step === "forgot" ? (

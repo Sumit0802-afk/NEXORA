@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+vi.mock("../api", () => ({ sendSupportMessage: vi.fn().mockResolvedValue({ status: "sent" }) }));
 import {
   submitUserFeedback,
   getStoredFeedback,
@@ -31,6 +33,12 @@ describe("Telemetry & User Feedback System", () => {
     const stored = getStoredFeedback();
     expect(stored.length).toBe(1);
     expect(stored[0].title).toBe("PDF text overlap");
+  });
+
+  it("forwards feedback to the team through the server", async () => {
+    const { sendSupportMessage } = await import("../api");
+    await submitUserFeedback({ category: "bug", rating: 3, title: "Crash", message: "It crashed", email: "u@example.com" });
+    expect(sendSupportMessage).toHaveBeenCalledWith(expect.objectContaining({ kind: "feedback", subject: "Crash", email: "u@example.com" }));
   });
 
   it("updates feedback review status", async () => {

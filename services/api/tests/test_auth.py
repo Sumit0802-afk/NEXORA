@@ -14,6 +14,20 @@ from app.db.session import get_db
 from app.main import app
 
 
+_state: dict = {}
+
+
+def _login(c, email="a@example.com", password="correct horse"):
+    """Password step, then the code that is emailed on every sign-in. Returns the final response."""
+    r = c.post("/api/auth/login", json={"email": email, "password": password})
+    if r.status_code != 200:
+        return r
+    assert r.json() == {"otpRequired": True, "email": email.lower()}
+    assert c.cookies.get("nexora_session") is None  # no session until the code is entered
+    code = _state["sent"][-1][1]
+    return c.post("/api/auth/login/verify", json={"email": email, "code": code})
+
+
 @pytest.fixture()
 def client(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -34,6 +48,7 @@ def client(monkeypatch):
 
     app.dependency_overrides[get_db] = _db
     auth_routes._fails.clear()
+    _state["sent"] = sent
     c = TestClient(app)
     c.session_factory = Session  # type: ignore[attr-defined]
     c.sent = sent  # type: ignore[attr-defined]
@@ -54,7 +69,7 @@ def _signup(c, email="a@example.com", password="correct horse"):
     """Register, verify the emailed code, then sign in (verifying does not sign anyone in)."""
     assert _register(c, email, password).status_code == 201
     assert _verify(c, email).status_code == 200
-    r = c.post("/api/auth/login", json={"email": email, "password": password})
+    r = _login(c, email, password)
     assert r.status_code == 200
     return r
 
@@ -82,7 +97,7 @@ def test_verify_confirms_the_email_but_does_not_sign_in(client):
     assert "set-cookie" not in r.headers
     assert client.get("/api/auth/me").status_code == 401
     assert client.get("/api/projects").status_code == 401
-    r = client.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"})
+    r = _login(client)
     assert r.status_code == 200
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=lax" in cookie
@@ -167,7 +182,7 @@ def test_register_again_before_verifying_restarts_signup(client):
     assert _verify(client).status_code == 200
     client.post("/api/auth/logout")
     assert client.post("/api/auth/login", json={"email": "a@example.com", "password": "first password"}).status_code == 401
-    assert client.post("/api/auth/login", json={"email": "a@example.com", "password": "second password"}).status_code == 200
+    assert _login(client, "a@example.com", "second password").status_code == 200
 
 
 def test_mail_failure_is_reported_not_swallowed(client, monkeypatch):
@@ -217,7 +232,7 @@ def test_login_logout_flow(client):
     unknown = client.post("/api/auth/login", json={"email": "who@example.com", "password": "whatever1"})
     assert unknown.status_code == 404 and "Create an account first" in unknown.json()["detail"]
     assert client.get("/api/auth/me").status_code == 401
-    ok = client.post("/api/auth/login", json={"email": "A@example.com", "password": "correct horse"})
+    ok = _login(client, "A@example.com")
     assert ok.status_code == 200
     assert client.get("/api/auth/me").status_code == 200
 
@@ -258,7 +273,7 @@ def test_first_verified_account_adopts_legacy_projects_only(client):
     with client.session_factory() as db:
         assert db.query(Project).one().owner_id == DEMO_USER_ID
     _verify(client)
-    client.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"})
+    _login(client)
     assert [p["name"] for p in client.get("/api/projects").json()] == ["Legacy"]
     client.post("/api/auth/logout")
     _signup(client, email="b@example.com")
@@ -327,7 +342,7 @@ def test_forgot_password_flow_changes_the_password(client):
     assert to == "a@example.com" and purpose == "reset"
     assert _reset(client, code).status_code == 200
     assert client.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"}).status_code == 401
-    assert client.post("/api/auth/login", json={"email": "a@example.com", "password": "brand new pass"}).status_code == 200
+    assert _login(client, "a@example.com", "brand new pass").status_code == 200
 
 
 def test_forgot_does_not_reveal_unknown_emails(client):
@@ -383,7 +398,7 @@ def test_reset_also_confirms_an_unverified_email(client):
     _register(client)
     _forgot(client)
     assert _reset(client, client.sent[-1][1]).status_code == 200
-    assert client.post("/api/auth/login", json={"email": "a@example.com", "password": "brand new pass"}).status_code == 200
+    assert _login(client, "a@example.com", "brand new pass").status_code == 200
 
 
 # ── account management ───────────────────────────────────────────────────────
@@ -414,14 +429,14 @@ def test_change_password_needs_the_current_password(client):
     assert client.get("/api/auth/me").status_code == 200  # this device stays signed in
     client.post("/api/auth/logout")
     assert client.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"}).status_code == 401
-    assert client.post("/api/auth/login", json={"email": "a@example.com", "password": "a brand new pw"}).status_code == 200
+    assert _login(client, "a@example.com", "a brand new pw").status_code == 200
 
 
 def test_change_password_signs_out_other_devices(client):
     _signup(client)
     this_device = client.cookies.get("nexora_session")
     other = TestClient(app)
-    assert other.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"}).status_code == 200
+    assert _login(other, "a@example.com", "correct horse").status_code == 200
     assert other.get("/api/auth/me").status_code == 200
     client.cookies.set("nexora_session", this_device)
     assert client.post("/api/auth/change-password", json={"currentPassword": "correct horse", "newPassword": "a brand new pw"}).status_code == 200
@@ -432,7 +447,7 @@ def test_change_password_signs_out_other_devices(client):
 def test_logout_all_ends_every_session(client):
     _signup(client)
     other = TestClient(app)
-    other.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"})
+    _login(other)
     assert client.post("/api/auth/logout-all").status_code == 204
     assert client.get("/api/auth/me").status_code == 401
     assert other.get("/api/auth/me").status_code == 401
@@ -458,5 +473,46 @@ def test_deleting_one_account_leaves_other_users_untouched(client):
     _signup(client)
     client.post("/api/projects", json={"name": "A project"})
     assert client.post("/api/auth/delete-account", json={"password": "correct horse"}).status_code == 204
-    client.post("/api/auth/login", json={"email": "b@example.com", "password": "correct horse"})
+    _login(client, "b@example.com")
     assert [p["name"] for p in client.get("/api/projects").json()] == ["B project"]
+
+
+def test_every_sign_in_needs_an_emailed_code(client):
+    _signup(client)
+    client.post("/api/auth/logout")
+    before = len(client.sent)
+    r = client.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"})
+    assert r.status_code == 200 and r.json()["otpRequired"] is True
+    assert len(client.sent) == before + 1 and client.sent[-1][2] == "login"
+    assert client.get("/api/auth/me").status_code == 401  # password alone is not enough
+    wrong = client.post("/api/auth/login/verify", json={"email": "a@example.com", "code": "000000"})
+    assert wrong.status_code == 400
+    assert client.get("/api/auth/me").status_code == 401
+    good = client.post("/api/auth/login/verify", json={"email": "a@example.com", "code": client.sent[-1][1]})
+    assert good.status_code == 200 and client.get("/api/auth/me").status_code == 200
+    # a used code cannot be replayed, and a new sign-in sends a new code
+    client.post("/api/auth/logout")
+    assert client.post("/api/auth/login/verify", json={"email": "a@example.com", "code": client.sent[-1][1]}).status_code == 400
+    client.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"})
+    assert len(client.sent) == before + 2
+
+
+def test_sign_in_code_is_locked_after_too_many_wrong_tries(client):
+    _signup(client)
+    client.post("/api/auth/logout")
+    client.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"})
+    code = client.sent[-1][1]
+    for _ in range(5):
+        assert client.post("/api/auth/login/verify", json={"email": "a@example.com", "code": "000000"}).status_code == 400
+    assert client.post("/api/auth/login/verify", json={"email": "a@example.com", "code": code}).status_code == 429
+
+
+def test_login_code_resend_needs_a_prior_password_step(client):
+    _signup(client)
+    client.post("/api/auth/logout")
+    n = len(client.sent)
+    client.post("/api/auth/login/resend", json={"email": "a@example.com"})
+    assert len(client.sent) == n  # no password step yet, nothing is sent
+    client.post("/api/auth/login", json={"email": "a@example.com", "password": "correct horse"})
+    client.post("/api/auth/login/resend", json={"email": "a@example.com"})
+    assert len(client.sent) == n + 2

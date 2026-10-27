@@ -263,8 +263,13 @@ def reset_password(payload: ResetPayload, request: Request, db: Session = Depend
     return {"status": "password_updated"}
 
 
+class LoginPending(BaseModel):
+    otpRequired: bool = True
+    email: str
+
+
 @router.post("/login")
-def login(payload: Credentials, request: Request, response: Response, db: Session = Depends(get_db)) -> UserOut:
+def login(payload: Credentials, request: Request, db: Session = Depends(get_db)) -> LoginPending:
     check_origin(request)
     key = f"{request.client.host if request.client else '?'}|{payload.email}"
     if _throttled(key):
@@ -282,8 +287,41 @@ def login(payload: Credentials, request: Request, response: Response, db: Sessio
     if not user.email_verified_at:
         _issue_otp(db, user)  # a code sent a moment ago is simply reused
         raise HTTPException(status_code=403, detail="email_not_verified")
-    _start_session(response, db, user)
+    # Correct password is only the first step: every sign-in is confirmed with a code emailed to the account.
+    _issue_otp(db, user, purpose="login")
+    return LoginPending(email=user.email)
+
+
+@router.post("/login/verify")
+def login_verify(payload: VerifyPayload, request: Request, response: Response, db: Session = Depends(get_db)) -> UserOut:
+    check_origin(request)
+    key = f"loginotp|{request.client.host if request.client else '?'}|{payload.email}"
+    if _throttled(key):
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in a few minutes.")
+    user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+    try:
+        user = _consume_otp(db, user, payload.code, "login")
+    except HTTPException:
+        _fails.setdefault(key, []).append(time.time())
+        raise
+    if not user.email_verified_at:
+        raise HTTPException(status_code=403, detail="email_not_verified")
+    _fails.pop(key, None)
+    _start_session(response, db, user)  # commits, which also removes the used code
     return _out(user)
+
+
+@router.post("/login/resend")
+def login_resend(payload: EmailOnly, request: Request, db: Session = Depends(get_db)) -> dict:
+    check_origin(request)
+    user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+    pending = user and db.execute(
+        select(EmailOtp.id).where(EmailOtp.user_id == user.id, EmailOtp.purpose == "login")
+    ).first()
+    # Only someone who already passed the password step has an outstanding code; the answer never reveals more.
+    if user and pending:
+        _issue_otp(db, user, strict=True, purpose="login")
+    return {"status": "sent"}
 
 
 @router.post("/logout", status_code=204)

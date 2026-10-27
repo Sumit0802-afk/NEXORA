@@ -7,6 +7,7 @@ import {
   UNAUTHORIZED_EVENT,
   getCurrentUser,
   login as apiLogin,
+  loginVerify as apiLoginVerify,
   logout as apiLogout,
   register as apiRegister,
   verifyEmail as apiVerifyEmail,
@@ -20,7 +21,9 @@ import { loginUrl } from "@/lib/auth-redirect";
 type AuthState = {
   user: AuthUser | null;
   status: "loading" | "signedIn" | "signedOut";
+  /** Checks the password and emails a sign-in code. The user is not signed in until completeSignIn(). */
   signIn: (email: string, password: string) => Promise<void>;
+  completeSignIn: (email: string, code: string) => Promise<void>;
   /** Creates the account and emails a code. Neither signUp() nor verify() signs the user in. */
   signUp: (email: string, password: string, displayName?: string) => Promise<void>;
   verify: (email: string, code: string) => Promise<void>;
@@ -90,7 +93,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [status, isPublic, pathname, router]);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const u = await apiLogin(email, password);
+    await apiLogin(email, password);
+  }, []);
+
+  const completeSignIn = useCallback(async (email: string, code: string) => {
+    const u = await apiLoginVerify(email, code);
     setUser(u);
     setStatus("signedIn");
   }, []);
@@ -137,8 +144,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   const value = useMemo(
-    () => ({ user, status, signIn, signUp, verify, signOut, signOutEverywhere, updateName, removeAccount }),
-    [user, status, signIn, signUp, verify, signOut, signOutEverywhere, updateName, removeAccount],
+    () => ({ user, status, signIn, completeSignIn, signUp, verify, signOut, signOutEverywhere, updateName, removeAccount }),
+    [user, status, signIn, completeSignIn, signUp, verify, signOut, signOutEverywhere, updateName, removeAccount],
   );
 
   // Don't flash protected pages (or fire their API calls) before we know who is signed in.
