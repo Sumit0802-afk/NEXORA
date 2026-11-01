@@ -2065,7 +2065,7 @@ h1, h2, h3, h4 { font-family: var(--font-sans); letter-spacing: -0.025em; font-w
   .studio-floor-cut-btn span:first-of-type,
   .studio-roof-btn span:first-of-type { display: none; }
   .studio-toggle-btn span { display: none; }
-  .studio-tool-btn span { display: none; }
+  .studio-tool-btn span:not(:first-child) { display: none; }
   .studio-btn-group { gap: 1px; }
 }
 @media (max-width: 600px) {
@@ -4807,3 +4807,72 @@ select.nd-input { appearance: none; -webkit-appearance: none; background: #fff u
 .ph-banner { margin-bottom: 14px; padding: 12px 16px; font-size: 14px; color: #302A65; background: #FFF4D6; border: 1px solid #EAD9A0; border-radius: 12px; }
 .ph-review-body { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 20px; padding: 20px; background: #fff; border: 1px solid #E9E3D3; border-radius: 16px; }
 @media (max-width: 820px) { .ph-review-body { grid-template-columns: 1fr; } }
+
+/* ── Studio on tablets and phones ── */
+/* Room labels are positioned over the canvas: keep their z-index inside it so they can't float above the toolbar. */
+.studio-canvas-container { isolation: isolate; overflow: hidden; }
+.studio-floor-cluster { position: relative; }
+.studio-gesture-list.touch { display: none; }
+@media (pointer: coarse) {
+  .studio-gesture-list.mouse { display: none; }
+  .studio-gesture-list.touch { display: grid; }
+}
+
+@media (max-width: 1100px) {
+  /* One row for the title, one sliding row for the actions, with the main action first. */
+  .studio-topbar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 14px; }
+  .studio-topbar-left { min-width: 0; gap: 10px; }
+  .studio-topbar-right, .studio-topbar-actions { display: flex; align-items: center; gap: 8px; margin: 0 -14px; padding: 0 14px 2px; overflow-x: auto; scrollbar-width: none; }
+  .studio-topbar-right::-webkit-scrollbar, .studio-topbar-actions::-webkit-scrollbar { display: none; }
+  .studio-topbar-right > *, .studio-topbar-actions > * { flex: none; white-space: nowrap; }
+  .studio-topbar-right > .primary, .studio-topbar-actions > .primary { order: -1; }
+  .studio-sync-pill { display: none; }
+  .studio-breadcrumb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
+  .studio-breadcrumb strong ~ span { display: none; }
+  .studio-breadcrumb strong, .studio-crumb-curr { overflow: hidden; text-overflow: ellipsis; }
+  .save-pill-indicator { flex: none; white-space: nowrap; }
+
+  /* Stacked above the inspector the card has no height to inherit, so the canvas needs its own. */
+  .studio-viewport-card { flex: none; min-height: 0; }
+  .studio-canvas-container { flex: none; height: 640px; }
+  .studio-viewport-card:fullscreen .studio-canvas-container { flex: 1; height: auto; min-height: 0; }
+}
+
+@media (max-width: 900px) {
+  .studio-topbar { position: static; }
+
+  /* 2D editor: canvas first, then tools and properties, which would otherwise be out of reach. */
+  .studio-layout { display: flex; flex-direction: column; }
+  .studio-layout .studio-main { order: -1; padding: 12px 14px; }
+  .studio-layout .studio-sidebar { display: block; border-right: 0; border-top: 1px solid var(--line); }
+
+  .floor-tabs, .tool-row { flex-wrap: nowrap; margin-left: -14px; margin-right: -14px; padding: 0 14px 2px; overflow-x: auto; scrollbar-width: none; }
+  .floor-tabs::-webkit-scrollbar, .tool-row::-webkit-scrollbar { display: none; }
+  .floor-tabs > *, .tool-row > * { flex: none; white-space: nowrap; }
+  .floor-tab { align-items: center; }
+  .tool { min-height: 38px; }
+  .zoom-control { margin-left: 0; }
+  .status-bar { flex-wrap: wrap; gap: 4px 14px; }
+}
+
+@media (max-width: 600px) {
+  /* 3D studio: the command bar sits above the canvas rather than covering it. */
+  .studio-main { padding: 10px; }
+  .studio-stage { min-height: 0; gap: 10px; }
+  .studio-viewport-card { border-radius: 14px; }
+  .studio-floating-toolbar { position: relative; top: auto; left: auto; transform: none; width: 100%; max-width: 100%; box-sizing: border-box; gap: 6px; padding: 8px; border: 0; border-bottom: 1px solid rgba(81, 70, 165, 0.14); border-radius: 0; box-shadow: none; }
+  .studio-viewport-card:fullscreen .studio-floating-toolbar { padding-top: max(8px, env(safe-area-inset-top)); }
+  .studio-floating-toolbar .studio-icon-btn:nth-last-child(2) { display: none; } /* Fit to view is already in the camera controls */
+  .studio-tool-btn, .studio-toggle-btn, .studio-roof-btn, .studio-walk-btn, .studio-icon-btn, .studio-floor-select { min-height: 38px; min-width: 38px; justify-content: center; }
+  .studio-canvas-container { height: 62svh; min-height: 340px; max-height: 620px; }
+  .studio-floor-cluster { position: static; }
+  .studio-floor-menu { top: 100%; left: 8px; right: 8px; min-width: 0; max-height: 60svh; overflow-y: auto; }
+
+  .studio-hud-controls { right: 10px; bottom: 10px; }
+  .studio-gesture-guide { left: 10px; bottom: 10px; max-width: calc(100% - 80px); padding: 9px 11px; }
+  .studio-gesture-badge-btn { left: 10px; bottom: 10px; }
+
+  .studio-inspector { max-height: none; width: 100%; box-sizing: border-box; flex-direction: column; flex-wrap: nowrap; overflow: visible; padding: 14px; border-radius: 14px; }
+  .studio-style-grid { grid-template-columns: repeat(2, 1fr); }
+  .studio-confirm-actions { flex-wrap: wrap; }
+}

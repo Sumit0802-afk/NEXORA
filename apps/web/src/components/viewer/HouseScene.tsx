@@ -512,7 +512,8 @@ function CameraRig({
   walkthroughMode?: boolean;
 }) {
   const { camera, size } = useThree();
-  const aspectBackoff = size.width > 0 && size.height > 0 ? Math.max(1, size.height / size.width) : 1;
+  // The framing assumes a landscape canvas; a portrait one sees much less sideways, so the camera has to stand further off.
+  const aspectBackoff = size.width > 0 && size.height > 0 ? Math.max(1, size.height / size.width) ** 2 : 1;
   const targetX = framing.targetX ?? 0;
   const targetY = view === "top" ? 0 : framing.targetY;
   const targetZ = framing.targetZ ?? 0;
@@ -521,7 +522,7 @@ function CameraRig({
     if (walkthroughMode) return;
     const rawPos = framing.positions[view];
     const x = targetX + (rawPos[0] - targetX) * aspectBackoff;
-    const y = rawPos[1];
+    const y = targetY + (rawPos[1] - targetY) * aspectBackoff;
     const z = targetZ + (rawPos[2] - targetZ) * aspectBackoff;
 
     camera.up.set(0, view === "top" ? 0 : 1, view === "top" ? -1 : 0);

@@ -605,7 +605,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                 <div className="studio-toolbar-divider" />
 
                 {/* FLOORS */}
-                <div className="studio-toolbar-cluster" ref={floorMenuRef} style={{ position: "relative" }}>
+                <div className="studio-toolbar-cluster studio-floor-cluster" ref={floorMenuRef}>
                   <button
                     className="studio-floor-select"
                     onClick={() => setShowFloorMenu((m) => !m)}
@@ -938,11 +938,17 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                       <X size={12} />
                     </button>
                   </div>
-                  <div className="studio-gesture-list">
+                  <div className="studio-gesture-list mouse">
                     <div className="studio-gesture-item"><span>🖱️ <strong>Left-drag</strong> orbit</span></div>
                     <div className="studio-gesture-item"><span>🖱️ <strong>Right-drag</strong> pan</span></div>
                     <div className="studio-gesture-item"><span>🔄 <strong>Scroll</strong> zoom</span></div>
                     <div className="studio-gesture-item"><span>👆 <strong>Click room</strong> inspect</span></div>
+                  </div>
+                  <div className="studio-gesture-list touch">
+                    <div className="studio-gesture-item"><span>👆 <strong>Drag</strong> orbit</span></div>
+                    <div className="studio-gesture-item"><span>✌️ <strong>Two fingers</strong> pan</span></div>
+                    <div className="studio-gesture-item"><span>🤏 <strong>Pinch</strong> zoom</span></div>
+                    <div className="studio-gesture-item"><span>👆 <strong>Tap room</strong> inspect</span></div>
                   </div>
                 </div>
               ) : (

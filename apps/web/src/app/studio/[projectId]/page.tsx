@@ -277,6 +277,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
   const zoomIn = () => setZoom((z) => Math.min(2.5, Math.round((z + 0.1) * 100) / 100));
   const zoomOut = () => setZoom((z) => Math.max(0.4, Math.round((z - 0.1) * 100) / 100));
   const stageRef = useRef<Konva.Stage | null>(null);
+  const canvasShellRef = useRef<HTMLDivElement | null>(null);
 
   const resetView = () => {
     stageRef.current?.position({ x: 0, y: 0 });
@@ -286,7 +287,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
 
   const fitToPlan = () => {
     if (!plan) return;
-    const viewportW = 760;
+    const viewportW = Math.min(760, canvasShellRef.current?.clientWidth || 760);
     const viewportH = 560;
     const planPxW = plan.plot.width * 10 + 96;
     const planPxH = plan.plot.length * 10 + 96;
@@ -295,6 +296,16 @@ export default function StudioPage({ params }: { params: { projectId: string } }
     stageRef.current?.batchDraw();
     setZoom(Math.round(fit * 100) / 100);
   };
+
+  // On a screen narrower than the canvas, open with the whole plot in view rather than clipped at 100%.
+  const autoFitted = useRef(false);
+  useEffect(() => {
+    const shellWidth = canvasShellRef.current?.clientWidth;
+    if (!plan || !shellWidth || autoFitted.current) return;
+    autoFitted.current = true;
+    if (shellWidth < 760) fitToPlan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan]);
 
   const floorCount = plan?.levels.length ?? 1;
   useEffect(() => {
@@ -1328,7 +1339,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
 
           {/* Interactive Canvas Area */}
           <div className={`canvas-area`}>
-            <div className="canvas-shell">
+            <div className="canvas-shell" ref={canvasShellRef}>
               <FloorPlanCanvas
                 ref={stageRef}
                 plan={plan}
