@@ -81,6 +81,7 @@ class Project(Base):
         back_populates="project", order_by="DesignVersion.version_number", cascade="all, delete-orphan"
     )
     house_design: Mapped["HouseDesign | None"] = relationship(back_populates="project", cascade="all, delete-orphan", uselist=False)
+    house_design_jobs: Mapped[list["HouseDesignJob"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class DesignVersion(Base):
@@ -107,6 +108,22 @@ class HouseDesign(Base):
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
     project: Mapped["Project"] = relationship(back_populates="house_design")
+
+
+class HouseDesignJob(Base):
+    """A reference reading running in the background. Images are never stored; only the result is."""
+
+    __tablename__ = "house_design_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    result: Mapped[dict | None] = mapped_column(JSONType(), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+    project: Mapped["Project"] = relationship(back_populates="house_design_jobs")
 
 
 class LibraryFavorite(Base):

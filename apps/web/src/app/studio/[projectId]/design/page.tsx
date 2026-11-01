@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Blocks,
+  Boxes,
   BrickWall,
   Check,
   ChevronDown,
@@ -41,13 +42,18 @@ import { HouseScene, type HouseSceneHandle, type SceneView } from "@/components/
 import { StudioErrorBoundary } from "@/components/common/StudioErrorBoundary";
 import { GalleryOverlay } from "@/components/house-design/GalleryOverlay";
 import { BalconyPanel, DoorsPanel, EnvironmentPanel, FacadePanel, InteriorPanel, RoofPanel, WallsPanel, WindowsPanel } from "@/components/house-design/Inspectors";
-import { ExportPanel, MaterialsPanel, VariationsPanel } from "@/components/house-design/LibraryPanels";
+import { ExportPanel, MaterialsPanel, VariationsPanel, type SelectedSurface } from "@/components/house-design/LibraryPanels";
+import { ObjectInspector, ObjectsPanel } from "@/components/house-design/ObjectPanels";
 import { ReferencePanel } from "@/components/house-design/ReferencePanel";
 import { FinishPicker, WALL_MATERIALS } from "@/components/house-design/controls";
 import { useHouseDesign } from "@/lib/house-design/context";
-import { generateFromReference, referenceFromGallery } from "@/lib/house-design/pipeline";
-import { designOrDefault, setAt, type DesignSection, type HouseDesign, type LightingPreview, type ReferenceImage } from "@/lib/house-design/schema";
-import { finishAt, roomFinish, targetForPart } from "@/lib/house-design/surfaces";
+import { baseRecord, matchReport } from "@/lib/house-design/design-engine";
+import { planFingerprint } from "@/lib/house-design/geometry-engine";
+import { objectFinish, withObjectFinish, withoutOverride, type SceneObject } from "@/lib/house-design/objects";
+import { generateFromReferences, readImage, referenceFromGallery } from "@/lib/house-design/pipeline";
+import { designOrDefault, setAt, type DesignSection, type HouseDesign, type LightingPreview } from "@/lib/house-design/schema";
+import { finishAt, objectPartLabel, roomFinish, targetForPart } from "@/lib/house-design/surfaces";
+import type { ModelPick } from "@/components/viewer/DesignedHouse";
 import { usePlanContext } from "../plan-context";
 import "../../../house-design.css";
 
@@ -57,6 +63,7 @@ const NAV: { title: string; items: { id: DesignSection | "gallery"; label: strin
     items: [
       { id: "reference", label: "Reference image", icon: ImagePlus },
       { id: "gallery", label: "Design gallery", icon: LayoutGrid },
+      { id: "objects", label: "Objects", icon: Boxes },
     ],
   },
   {
@@ -111,14 +118,17 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
 
   const [section, setSection] = useState<DesignSection>("reference");
   const [gallery, setGallery] = useState(false);
-  const [chosen, setChosen] = useState<ReferenceImage | null>(null);
   const [view, setView] = useState<SceneView>("street");
   const [lighting, setLighting] = useState<LightingPreview>("day");
   const [showRoof, setShowRoof] = useState(true);
   const [compare, setCompare] = useState(false);
   const [baseline, setBaseline] = useState("original");
+  /** The design on the right of the comparison; the working design unless a variation was chosen. */
+  const [compareRight, setCompareRight] = useState("current");
   const [split, setSplit] = useState(50);
-  const [selectedPart, setSelectedPart] = useState<string | null>(null);
+  const [selection, setSelection] = useState<ModelPick | null>(null);
+  const [objects, setObjects] = useState<SceneObject[]>([]);
+  const [hovered, setHovered] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [target, setTarget] = useState("exterior.wall");
   const [resetOpen, setResetOpen] = useState(false);
@@ -134,7 +144,12 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
     toastTimer.current = setTimeout(() => setToast(null), 3400);
   }, []);
 
-  const shown = design;
+  const designById = useCallback(
+    (id: string): HouseDesign | null => (id === "current" ? design : id === "generated" ? doc.generated : id === "original" ? null : doc.variations.find((v) => v.id === id)?.design ?? null),
+    [design, doc.generated, doc.variations]
+  );
+  const shown = compare ? designById(compareRight) : design;
+  const fingerprint = useMemo(() => (plan ? planFingerprint(plan) : ""), [plan]);
   const rooms = useMemo(() => plan?.levels.flatMap((l) => l.rooms) ?? [], [plan]);
   const working = designOrDefault(design);
 
@@ -168,10 +183,14 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
     }
   };
 
-  const onPick = useCallback((part: string | null) => {
-    setSelectedPart(part);
-    if (!part) return;
-    const picked = targetForPart(part);
+  const onPick = useCallback((pick: ModelPick | null) => {
+    setSelection(pick);
+    if (!pick) return;
+    if (pick.object) {
+      setTarget("selected");
+      return;
+    }
+    const picked = targetForPart(pick.part);
     if (!picked) return;
     setTarget(picked.path);
     setSection(picked.section);
@@ -179,19 +198,34 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
   }, []);
 
   const applyGallery = async (id: string) => {
-    const reference = referenceFromGallery(id);
-    if (!reference || !plan) return;
-    const result = await generateFromReference(reference, { levels: plan.levels.length });
-    house.applyGenerated(result.design, result.reading, reference);
-    setChosen(null);
+    const image = referenceFromGallery(id);
+    if (!image || !plan) return;
+    const others = doc.references.filter((r) => r.elevation !== "front" && doc.images[r.imageId]).map((r) => ({ elevation: r.elevation, image: doc.images[r.imageId] }));
+    const result = await generateFromReferences([{ elevation: "front", image }, ...others], { plan });
+    house.applyGallery(result, image, baseRecord(plan, result.design, [image.id, ...others.map((o) => o.image.id)]));
     setGallery(false);
-    showToast(`Applied ${reference.name}. Your floor plan is unchanged.`);
+    showToast(`Applied ${image.name}. Your floor plan is unchanged.`);
+  };
+
+  const checkMatch = async () => {
+    if (!doc.parameters) return null;
+    setCompare(false);
+    setView("front");
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const blob = await sceneRef.current?.renderImage(960, 540, "image/jpeg", 0.9);
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
+    try {
+      return matchReport(doc.parameters, await readImage(url));
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   };
 
   const reset = (to: "generated" | "original") => {
     house.update(to === "generated" ? doc.generated : null);
     setResetOpen(false);
-    setSelectedPart(null);
+    setSelection(null);
     showToast(to === "generated" ? "Back to the generated design" : "Back to the original model");
   };
 
@@ -200,11 +234,9 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
     showToast("Drag to look around the room. Choose a view below to step back outside.");
   };
 
-  const beforeDesign = useMemo(() => {
-    if (baseline === "original") return null;
-    if (baseline === "generated") return doc.generated;
-    return doc.variations.find((v) => v.id === baseline)?.design ?? null;
-  }, [baseline, doc.generated, doc.variations]);
+  const beforeDesign = designById(baseline);
+  const compareLabel = (id: string) =>
+    id === "original" ? "Original" : id === "current" ? "Current" : id === "generated" ? "Generated" : doc.variations.find((v) => v.id === id)?.name ?? "Before";
 
   const dragSplit = (e: React.PointerEvent<HTMLDivElement>) => {
     const box = stageRef.current?.getBoundingClientRect();
@@ -219,7 +251,8 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
     move(e.nativeEvent);
   };
 
-  const selectedTarget = selectedPart ? targetForPart(selectedPart) : null;
+  const selectedObject = selection?.object ? objects.find((o) => o.id === selection.object) ?? null : null;
+  const selectedTarget = selection && !selection.object ? targetForPart(selection.part) : null;
   const selectedRoom = selectedTarget?.roomId ? rooms.find((r) => r.id === selectedTarget.roomId) : undefined;
   const selectedFinish = selectedTarget
     ? selectedTarget.roomId
@@ -228,13 +261,44 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
     : undefined;
 
   const levels = plan?.levels.length ?? 1;
-  const appliedGallery = doc.reference?.galleryId;
+  const frontImage = doc.references.find((r) => r.elevation === "front");
+  const appliedGallery = frontImage ? doc.images[frontImage.imageId]?.galleryId : undefined;
+
+  const selectedSurface: SelectedSurface | null = useMemo(() => {
+    if (!selectedObject || !selection || !plan) return null;
+    const part = selectedObject.parts.includes(selection.part) ? selection.part : selectedObject.parts[0];
+    if (part.startsWith("roomFloor:") || part.startsWith("ceiling:")) return null;
+    const hosts = new Map(objects.map((o) => [o.id, o.host]));
+    const fallback = (part === "walls" || part === "gableWall" ? working.exterior.wall : targetForPart(part) ? finishAt(working, targetForPart(part)!.path) : undefined) ?? working.exterior.wall;
+    return {
+      label: `${selectedObject.label}: ${objectPartLabel(part, (id) => rooms.find((r) => r.id === id)?.name).toLowerCase()}`,
+      finish: objectFinish(working, selectedObject.id, part, hosts) ?? fallback,
+      apply: (finish, group) => house.update(withObjectFinish(working, [selectedObject.id], part, finish), group ? `${group}:${selectedObject.id}` : undefined),
+    };
+  }, [selectedObject, selection, plan, objects, working, rooms, house]);
+
+  const planChanged = Boolean(doc.base && plan && doc.base.planFingerprint !== fingerprint);
 
   const panel = (() => {
     if (!plan) return null;
     switch (section) {
       case "reference":
-        return <ReferencePanel levels={levels} onOpenGallery={() => setGallery(true)} onGo={openSection} onToast={showToast} chosen={chosen} onChoose={setChosen} />;
+        return <ReferencePanel plan={plan} projectId={params.projectId} onOpenGallery={() => setGallery(true)} onGo={openSection} onToast={showToast} onCheckMatch={checkMatch} />;
+      case "objects":
+        return (
+          <ObjectsPanel
+            design={working}
+            objects={shown ? objects : []}
+            selectedId={selection?.object ?? null}
+            onHover={setHovered}
+            onSelect={(o) => {
+              setSelection({ part: o.parts[0], object: o.id });
+              setTarget("selected");
+              if (o.bounds) sceneRef.current?.focusBounds(o.bounds);
+            }}
+            onClear={(ids) => house.update(ids.reduce(withoutOverride, working))}
+          />
+        );
       case "walls":
         return <WallsPanel design={working} edit={edit} />;
       case "facade":
@@ -252,11 +316,11 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
       case "environment":
         return <EnvironmentPanel design={working} edit={edit} />;
       case "materials":
-        return <MaterialsPanel design={working} plan={plan} edit={edit} target={target} onTarget={setTarget} />;
+        return <MaterialsPanel design={working} plan={plan} edit={edit} target={target} onTarget={setTarget} selected={selectedSurface} />;
       case "variations":
-        return <VariationsPanel scene={sceneRef} onToast={showToast} />;
+        return <VariationsPanel scene={sceneRef} planFingerprint={fingerprint} onToast={showToast} onCompare={(a, b) => { setBaseline(a); setCompareRight(b); setCompare(true); }} />;
       case "export":
-        return <ExportPanel scene={sceneRef} projectName={projectName} design={design} />;
+        return <ExportPanel scene={sceneRef} projectName={projectName} design={design} plan={plan} objects={objects} />;
     }
   })();
 
@@ -354,8 +418,10 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
                   showStructuralFrame={false}
                   houseDesign={shown}
                   lighting={lighting}
-                  selectedPart={selectedPart}
-                  onPickPart={shown ? onPick : undefined}
+                  selection={compare ? null : selection}
+                  highlightObject={compare ? null : hovered}
+                  onPick={shown && !compare ? onPick : undefined}
+                  onModel={setObjects}
                   selectedRoomId={section === "interior" ? roomId : null}
                   onSelectRoom={shown ? undefined : (id) => { setRoomId(id); if (id) setSection("interior"); }}
                 />
@@ -373,8 +439,8 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
                   onKeyDown={(e) => { if (e.key === "ArrowLeft") setSplit((v) => Math.max(4, v - 2)); if (e.key === "ArrowRight") setSplit((v) => Math.min(96, v + 2)); }}>
                   <i><ChevronDown size={13} /><ChevronDown size={13} /></i>
                 </div>
-                <span className="hd-tag left">Before</span>
-                <span className="hd-tag right">After</span>
+                <span className="hd-tag left">{compareLabel(baseline)}</span>
+                <span className="hd-tag right">{compareLabel(compareRight)}</span>
               </>
             )}
 
@@ -397,10 +463,11 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
                 ))}
               </div>
               <div className="hd-seg">
-                <button type="button" className={compare ? "on" : ""} aria-pressed={compare} disabled={!shown} onClick={() => setCompare((c) => !c)} title="Before and after"><Columns2 size={15} /> <span>Compare</span></button>
+                <button type="button" className={compare ? "on" : ""} aria-pressed={compare} disabled={!design} onClick={() => { setCompare((c) => !c); setCompareRight("current"); }} title="Before and after"><Columns2 size={15} /> <span>Compare</span></button>
                 {compare && (
                   <select value={baseline} onChange={(e) => setBaseline(e.target.value)} aria-label="Compare with">
                     <option value="original">Original model</option>
+                    {compareRight !== "current" && <option value="current">Current design</option>}
                     {doc.generated && <option value="generated">Generated design</option>}
                     {doc.variations.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                   </select>
@@ -413,17 +480,31 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
                 <button type="button" onClick={() => sceneRef.current?.fitToView()} title="Fit to view" aria-label="Fit to view"><Maximize2 size={15} /></button>
               </div>
             </div>
-            <p className="hd-orbit-hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click a surface to edit it</p>
+            <p className="hd-orbit-hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click any object to edit it</p>
 
             {gallery && <GalleryOverlay appliedId={appliedGallery} onApply={(id) => void applyGallery(id)} onClose={() => setGallery(false)} />}
           </section>
 
           <aside className="hd-inspector" aria-label="Customization inspector">
+            {planChanged && <p className="hd-note">The floor plan changed after this design was generated. The model follows the new plan.</p>}
+            {selectedObject && selection && !compare && (
+              <ObjectInspector
+                key={selectedObject.id}
+                object={selectedObject}
+                part={selection.part}
+                design={working}
+                plan={plan!}
+                objects={objects}
+                onChange={(next, group) => house.update(next, group)}
+                onClose={() => setSelection(null)}
+                onFocus={() => { if (selectedObject.bounds) sceneRef.current?.focusBounds(selectedObject.bounds); }}
+              />
+            )}
             {selectedTarget && selectedFinish && (
               <div className="hd-selected">
                 <div>
                   <span>Selected in the model</span>
-                  <button type="button" onClick={() => setSelectedPart(null)} aria-label="Clear selection"><X size={14} /></button>
+                  <button type="button" onClick={() => setSelection(null)} aria-label="Clear selection"><X size={14} /></button>
                 </div>
                 <FinishPicker label={selectedRoom ? `${selectedRoom.name}: ${selectedTarget.label.toLowerCase()}` : selectedTarget.label} value={selectedFinish} categories={WALL_MATERIALS} compact onChange={(f, g) => edit(selectedTarget.path, f, g)} />
               </div>

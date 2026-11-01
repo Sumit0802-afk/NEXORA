@@ -1,4 +1,5 @@
 import base64
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -8,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_current_user
+from app.api.routes import house_design
 from app.core.config import settings
 from app.db.models import Base, User
 from app.db.session import get_db
@@ -91,7 +93,7 @@ def test_deleting_a_project_removes_its_design(client):
 
 def test_refuses_an_oversized_design(client):
     pid = _project(client)
-    response = client.put(f"/api/projects/{pid}/house-design", json={"blob": "x" * 6_100_000})
+    response = client.put(f"/api/projects/{pid}/house-design", json={"blob": "x" * 12_100_000})
     assert response.status_code == 413
     assert "too large" in response.json()["detail"]
 
@@ -104,8 +106,12 @@ def test_another_users_project_is_hidden(client):
     assert client.put(f"/api/projects/{pid}/house-design", json={"n": 1}).status_code == 404
 
 
+def _job(client, pid, views=None):
+    return client.post(f"/api/projects/{pid}/house-design/jobs", json={"views": views or [{"elevation": "front", "image": DATA_URL}]})
+
+
 def test_image_reading_says_when_it_is_off(client):
-    response = client.post("/api/house-design/read-image", json={"image": DATA_URL})
+    response = _job(client, _project(client))
     assert response.status_code == 503
     assert "AI" not in response.json()["detail"]
 
@@ -117,41 +123,74 @@ def _reading(**overrides):
     return ai._HouseReading(**{**values, **overrides})
 
 
-def test_image_reading_returns_the_fields_the_web_app_uses(client, monkeypatch):
+def _provider(monkeypatch):
     monkeypatch.setattr(settings, "ai_provider", "anthropic")
     monkeypatch.setattr(settings, "ai_api_key", "test")
-    seen = {}
+
+
+def test_a_job_reads_each_view_and_keeps_the_result(client, monkeypatch):
+    _provider(monkeypatch)
+    seen = []
 
     def fake_parse(system, prompt, schema, image=None):
-        seen["image"] = image
+        seen.append(image)
         return _reading()
 
     monkeypatch.setattr(ai, "_parse", fake_parse)
-    body = client.post("/api/house-design/read-image", json={"image": DATA_URL}).json()
-    assert seen["image"] == (JPEG, "image/jpeg")
-    assert body["windowShape"] == "arched"
-    assert body["wallTexture"] == "stucco"
-    assert len(body["notes"]) == 2
+    pid = _project(client)
+    started = _job(client, pid, [{"elevation": "front", "image": DATA_URL}, {"elevation": "rear", "image": DATA_URL}])
+    assert started.status_code == 202
+    assert started.json()["status"] == "queued"
+    body = client.get(f"/api/projects/{pid}/house-design/jobs/{started.json()['jobId']}").json()
+    assert body["status"] == "completed"
+    assert seen == [(JPEG, "image/jpeg")] * 2
+    assert set(body["result"]) == {"front", "rear"}
+    assert body["result"]["rear"]["windowShape"] == "arched"
+    assert len(body["result"]["front"]["notes"]) == 2
 
 
-def test_image_reading_failure_is_reported_in_plain_words(client, monkeypatch):
-    monkeypatch.setattr(settings, "ai_provider", "anthropic")
-    monkeypatch.setattr(settings, "ai_api_key", "test")
+def test_a_failed_job_says_so_in_plain_words(client, monkeypatch):
+    _provider(monkeypatch)
 
     def fail(*_args, **_kwargs):
         raise ai.AIUnavailable("The AI service is busy.")
 
     monkeypatch.setattr(ai, "_parse", fail)
-    response = client.post("/api/house-design/read-image", json={"image": DATA_URL})
-    assert response.status_code == 503
-    assert "AI" not in response.json()["detail"]
+    pid = _project(client)
+    body = client.get(f"/api/projects/{pid}/house-design/jobs/{_job(client, pid).json()['jobId']}").json()
+    assert body["status"] == "failed"
+    assert "AI" not in body["error"]
+
+
+def test_a_stuck_job_stops_looking_busy(client, monkeypatch):
+    _provider(monkeypatch)
+    monkeypatch.setattr(house_design, "_run_read_job", lambda *_args: None)
+    monkeypatch.setattr(house_design, "JOB_TIMEOUT", timedelta(seconds=-1))
+    pid = _project(client)
+    job_id = _job(client, pid).json()["jobId"]
+    assert client.get(f"/api/projects/{pid}/house-design/jobs/{job_id}").json()["status"] == "failed"
+
+
+def test_a_job_belongs_to_its_project(client, monkeypatch):
+    _provider(monkeypatch)
+    monkeypatch.setattr(ai, "_parse", lambda *_args, **_kwargs: _reading())
+    pid, other = _project(client), _project(client)
+    job_id = _job(client, pid).json()["jobId"]
+    assert client.get(f"/api/projects/{other}/house-design/jobs/{job_id}").status_code == 404
+    stranger = User(id=uuid4(), email="stranger@example.com", password_hash="x")
+    app.dependency_overrides[get_current_user] = lambda: stranger
+    assert client.get(f"/api/projects/{pid}/house-design/jobs/{job_id}").status_code == 404
 
 
 @pytest.mark.parametrize("image", ["data:image/jpeg;base64,not-base64!!" + "A" * 32, "data:image/gif;base64," + base64.b64encode(b"GIF89a" + b"0" * 40).decode()])
 def test_image_reading_refuses_anything_that_is_not_a_photo(client, monkeypatch, image):
-    monkeypatch.setattr(settings, "ai_provider", "anthropic")
-    monkeypatch.setattr(settings, "ai_api_key", "test")
-    assert client.post("/api/house-design/read-image", json={"image": image}).status_code == 422
+    _provider(monkeypatch)
+    assert _job(client, _project(client), [{"elevation": "front", "image": image}]).status_code == 422
+
+
+def test_a_job_refuses_an_unknown_side(client, monkeypatch):
+    _provider(monkeypatch)
+    assert _job(client, _project(client), [{"elevation": "top", "image": DATA_URL}]).status_code == 422
 
 
 def test_image_prompt_never_runs_without_a_provider(monkeypatch):

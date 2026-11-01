@@ -29,6 +29,25 @@ export type PathStyle = "none" | "straight" | "stepping";
 export type LightingStyle = "none" | "bollards" | "sconces" | "uplights" | "all";
 export type Surroundings = "studio" | "suburban" | "urban" | "woodland" | "waterfront";
 export type LightingPreview = "day" | "golden" | "night";
+/** A side of the house as seen from the street. */
+export type Elevation = "front" | "rear" | "left" | "right";
+
+export const ELEVATIONS: Elevation[] = ["front", "rear", "left", "right"];
+export const ELEVATION_LABEL: Record<Elevation, string> = { front: "Front", rear: "Rear", left: "Left side", right: "Right side" };
+
+/** What one object changes from the design it belongs to. Anything left out follows the design. */
+export type ObjectOverride = {
+  /** Finish by part, since a wall has its outer face, cladding and room linings. */
+  finishes?: Record<string, Finish>;
+  /** Takes out something the model added. Elements of the 2D plan cannot be hidden here. */
+  hidden?: boolean;
+  window?: { shape?: WindowShape; grid?: WindowGrid; trim?: WindowTrim };
+  door?: { design?: DoorDesign };
+  balcony?: { style?: RailingStyle; depth?: number; height?: number };
+  roof?: { type?: RoofType; pitch?: number; overhang?: number };
+  /** Whether a reference view or the user set this. */
+  source?: "reference" | "user";
+};
 
 export type HouseDesign = {
   schema: 1;
@@ -74,8 +93,9 @@ export type HouseDesign = {
     };
     door: { design: DoorDesign; finish: Finish; hardware: string };
     balcony: {
-      /** Add cantilevered balconies to upper street-facing windows. */
+      /** Add cantilevered balconies to upper windows on the chosen sides. */
       projected: boolean;
+      elevations: Elevation[];
       depth: number;
       style: RailingStyle;
       height: number;
@@ -107,6 +127,8 @@ export type HouseDesign = {
     boundary: Finish;
     lighting: { style: LightingStyle; color: string; intensity: number };
   };
+  /** Per-object edits by semantic id, kept apart from the design's general settings. */
+  overrides: Record<string, ObjectOverride>;
 };
 
 export type RoomFinishes = { wall?: Finish; floor?: Finish; ceiling?: Finish; ceilingStyle?: CeilingStyle };
@@ -143,6 +165,7 @@ export const DEFAULT_DESIGN: HouseDesign = {
     door: { design: "flush", finish: { materialId: "wood_walnut", color: "#5B3A26" }, hardware: "#1E2024" },
     balcony: {
       projected: true,
+      elevations: ["front"],
       depth: 3.5,
       style: "glass",
       height: 3.5,
@@ -173,6 +196,7 @@ export const DEFAULT_DESIGN: HouseDesign = {
     boundary: { materialId: "paint_matte", color: "#E4DFD4" },
     lighting: { style: "bollards", color: "#FFD9A0", intensity: 1 },
   },
+  overrides: {},
 };
 
 export function cloneDesign(design: HouseDesign): HouseDesign {
@@ -201,6 +225,7 @@ export function normalizeDesign(saved: unknown): HouseDesign {
 // ── Stored document ──────────────────────────────────────────────────────────
 
 export type ReferenceImage = {
+  id: string;
   kind: "upload" | "gallery";
   name: string;
   /** A downscaled copy of the upload, or the gallery image's public path. */
@@ -210,12 +235,44 @@ export type ReferenceImage = {
   galleryId?: string;
 };
 
+/** One view of the reference house. Images live in the document's pool, so variations share them. */
+export type ReferenceSlot = { elevation: Elevation; imageId: string };
+
+/** How a value was arrived at. Only measured and reviewed values carry a confidence. */
+export type ParameterBasis = "measured" | "reviewed" | "style-default" | "preset" | "not-visible";
+
+export type DesignParameter<T> = {
+  value: T | null;
+  /** 0–1, or null when nothing in the images supports a figure. */
+  confidence: number | null;
+  basis: ParameterBasis;
+  /** The views that contributed. */
+  views: Elevation[];
+};
+
+/** The structured reading of the reference images. */
+export type DesignParameters = {
+  schema: 1;
+  views: Elevation[];
+  style: DesignParameter<ArchCategory>;
+  silhouette: DesignParameter<{ widthToHeight: number; roofShare: number }>;
+  floors: DesignParameter<number>;
+  roof: DesignParameter<{ type: RoofType; pitch: number; color: string }>;
+  facade: DesignParameter<{ windowRows: number; windowCount: number; glassShare: number; symmetry: number }>;
+  windows: DesignParameter<{ shape: WindowShape; grid: WindowGrid; frame: string; glass: string }>;
+  doors: DesignParameter<{ design: DoorDesign; color: string | null }>;
+  balconies: DesignParameter<{ style: RailingStyle; elevations: Elevation[] }>;
+  materials: DesignParameter<{ wall: string; wallColor: string; accent: string | null; roof: string }>;
+  palette: DesignParameter<{ hex: string; share: number }[]>;
+  details: DesignParameter<string[]>;
+};
+
 export type AttributeReading = {
   id: string;
   label: string;
   value: string;
-  /** 0–1. Below 0.5 the studio asks the user to check it. */
-  confidence: number;
+  /** 0–1. Below 0.5 the studio asks the user to check it. Null means there was nothing to measure. */
+  confidence: number | null;
   /** Which inspector section corrects this reading. */
   section: DesignSection;
   swatch?: string;
@@ -234,50 +291,107 @@ export type DesignVariation = {
   updatedAt: string;
   thumbnail: string | null;
   design: HouseDesign;
-  reference: ReferenceImage | null;
+  references: ReferenceSlot[];
   reading: ReadingSummary | null;
+  parameters: DesignParameters | null;
+  /** The floor plan this variation was saved on. */
+  planFingerprint: string | null;
+};
+
+/** A design that was replaced, kept so it can be restored. */
+export type DesignRevision = { id: string; at: string; label: string; design: HouseDesign | null };
+
+/** The base model when the design was generated. The geometry itself is rebuilt from the plan on open. */
+export type BaseRecord = {
+  planFingerprint: string;
+  generatedAt: string;
+  /** The reference images this design was generated from. */
+  sources: string[];
+  rooms: { id: string; level: number; width: number; depth: number }[];
+  objects: { id: string; kind: string; elevation: Elevation | null }[];
 };
 
 export type HouseDesignDocument = {
-  version: 1;
+  version: 2;
   /** Null until a design has been generated or applied; the model then shows the plain 3D house. */
   design: HouseDesign | null;
   /** The result of the last generation, so Reset can return to it. */
   generated: HouseDesign | null;
-  reference: ReferenceImage | null;
+  images: Record<string, ReferenceImage>;
+  references: ReferenceSlot[];
   reading: ReadingSummary | null;
+  parameters: DesignParameters | null;
+  base: BaseRecord | null;
   variations: DesignVariation[];
   activeVariationId: string | null;
+  revisions: DesignRevision[];
 };
 
 export const EMPTY_DOCUMENT: HouseDesignDocument = {
-  version: 1,
+  version: 2,
   design: null,
   generated: null,
-  reference: null,
+  images: {},
+  references: [],
   reading: null,
+  parameters: null,
+  base: null,
   variations: [],
   activeVariationId: null,
+  revisions: [],
 };
 
 export const MAX_VARIATIONS = 12;
+export const MAX_REVISIONS = 10;
+
+type LegacyReference = Omit<ReferenceImage, "id"> & { id?: string };
+type LegacyVariation = Partial<DesignVariation> & { reference?: LegacyReference | null };
+
+/** Version 1 kept one image on the document and a copy on every variation. */
+function adoptLegacy(reference: LegacyReference | null | undefined, images: Record<string, ReferenceImage>): ReferenceSlot[] {
+  if (!reference) return [];
+  const known = Object.values(images).find((i) => i.src === reference.src);
+  const id = known?.id ?? reference.id ?? `img-${Object.keys(images).length + 1}`;
+  if (!known) images[id] = { ...reference, id };
+  return [{ elevation: "front", imageId: id }];
+}
 
 export function normalizeDocument(saved: unknown): HouseDesignDocument {
   if (!isPlainObject(saved)) return { ...EMPTY_DOCUMENT };
-  const doc = saved as Partial<HouseDesignDocument>;
+  const doc = saved as Partial<Omit<HouseDesignDocument, "version" | "variations">> & { reference?: LegacyReference | null; variations?: LegacyVariation[] };
+  const images: Record<string, ReferenceImage> = { ...doc.images };
+  const references = doc.references ?? adoptLegacy(doc.reference, images);
   return {
-    version: 1,
+    version: 2,
     design: doc.design ? normalizeDesign(doc.design) : null,
     generated: doc.generated ? normalizeDesign(doc.generated) : null,
-    reference: doc.reference ?? null,
+    images,
+    references,
     reading: doc.reading ?? null,
-    variations: (doc.variations ?? []).map((v) => ({ ...v, design: normalizeDesign(v.design) })),
+    parameters: doc.parameters ?? null,
+    base: doc.base ?? null,
+    variations: (doc.variations ?? []).map((v) => {
+      const { reference, ...rest } = v;
+      return {
+        ...rest, design: normalizeDesign(v.design), references: v.references ?? adoptLegacy(reference, images),
+        reading: v.reading ?? null, parameters: v.parameters ?? null, planFingerprint: v.planFingerprint ?? null,
+      } as DesignVariation;
+    }),
     activeVariationId: doc.activeVariationId ?? null,
+    revisions: (doc.revisions ?? []).map((r) => ({ ...r, design: r.design ? normalizeDesign(r.design) : null })),
   };
+}
+
+/** Drops images no current view or variation uses, so a replaced photo does not stay in the saved document. */
+export function pruneImages(doc: HouseDesignDocument): HouseDesignDocument {
+  const used = new Set([...doc.references, ...doc.variations.flatMap((v) => v.references)].map((r) => r.imageId));
+  const images = Object.fromEntries(Object.entries(doc.images).filter(([id]) => used.has(id)));
+  return Object.keys(images).length === Object.keys(doc.images).length ? doc : { ...doc, images };
 }
 
 export type DesignSection =
   | "reference"
+  | "objects"
   | "walls"
   | "roof"
   | "windows"

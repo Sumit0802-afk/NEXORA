@@ -1,67 +1,128 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, ImageUp, LayoutGrid, Loader2, RefreshCw, Trash2, Wand2 } from "lucide-react";
-import { getAiStatus, readHouseImage } from "@/lib/api";
+import { AlertTriangle, Check, ChevronDown, ImageUp, LayoutGrid, Loader2, RefreshCw, ScanSearch, Trash2, Wand2, X } from "lucide-react";
+import type { FloorPlan } from "@houseplan/design-schema";
+import { ApiError, getAiStatus, getHouseReadJob, startHouseReadJob } from "@/lib/api";
 import { loadPhoto } from "@/lib/photo-upload";
 import { useHouseDesign } from "@/lib/house-design/context";
-import { STAGE_LABEL, generateFromReference, referenceFromUpload, type GenerationStage } from "@/lib/house-design/pipeline";
-import type { DeepReading } from "@/lib/house-design/interpret";
-import type { DesignSection, ReferenceImage } from "@/lib/house-design/schema";
+import { baseRecord, type MatchRow } from "@/lib/house-design/design-engine";
+import { STAGE_LABEL, generateFromReferences, referenceFromUpload, type DeepReader, type GenerationStage, type GenerationView } from "@/lib/house-design/pipeline";
+import { ELEVATIONS, ELEVATION_LABEL, type DesignSection, type Elevation, type ReferenceImage } from "@/lib/house-design/schema";
 import { PanelHead, Toggle } from "./controls";
 
 const STAGES: GenerationStage[] = ["preparing", "reading", "refining", "composing"];
+const POLL_MS = 1200;
+const POLL_LIMIT = 75;
 
-function confidenceLabel(confidence: number) {
-  if (confidence >= 0.7) return { text: "Clear", tone: "high" };
-  if (confidence >= 0.5) return { text: "Likely", tone: "mid" };
-  return { text: "Check", tone: "low" };
+function confidenceLabel(confidence: number | null) {
+  if (confidence === null) return { text: "Not measured", tone: "none" };
+  if (confidence >= 0.7) return { text: "Strong evidence", tone: "high" };
+  if (confidence >= 0.5) return { text: "Some evidence", tone: "mid" };
+  return { text: "Weak evidence", tone: "low" };
 }
 
-export function ReferencePanel({
-  levels,
-  onOpenGallery,
-  onGo,
-  onToast,
-  chosen,
-  onChoose,
-}: {
-  levels: number;
+/** Starts the server reading as a job and waits for it, so a slow provider never holds a request open. */
+function serverReader(projectId: string, onUnavailable: () => void): DeepReader {
+  return async (views) => {
+    try {
+      const { jobId } = await startHouseReadJob(projectId, views);
+      for (let i = 0; i < POLL_LIMIT; i++) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+        const job = await getHouseReadJob(projectId, jobId);
+        if (job.status === "completed") return job.result;
+        if (job.status === "failed") break;
+      }
+    } catch (err) {
+      if (!(err instanceof ApiError)) throw err;
+    }
+    onUnavailable();
+    return null;
+  };
+}
+
+function Slot({ elevation, image, disabled, onFile, onRemove }: { elevation: Elevation; image: ReferenceImage | null; disabled: boolean; onFile: (file: File | undefined) => void; onRemove: () => void }) {
+  const input = useRef<HTMLInputElement | null>(null);
+  const [over, setOver] = useState(false);
+  const picker = <input ref={input} className="hd-hidden" type="file" accept="image/jpeg,image/png,image/webp" aria-label={`${ELEVATION_LABEL[elevation]} reference image`} onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />;
+  if (image) {
+    return (
+      <figure className="hd-reference">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={image.src} alt={`${ELEVATION_LABEL[elevation]} reference: ${image.name}`} />
+        <figcaption>
+          <b>{ELEVATION_LABEL[elevation]}</b>
+          <span title={image.name}>{image.name}</span>
+          <div>
+            <button type="button" onClick={() => input.current?.click()} disabled={disabled} title="Replace" aria-label={`Replace the ${ELEVATION_LABEL[elevation]} image`}><RefreshCw size={13} /></button>
+            <button type="button" onClick={onRemove} disabled={disabled} title="Remove" aria-label={`Remove the ${ELEVATION_LABEL[elevation]} image`}><Trash2 size={13} /></button>
+          </div>
+        </figcaption>
+        {picker}
+      </figure>
+    );
+  }
+  return (
+    <label
+      className={`hd-drop slot${over ? " over" : ""}`}
+      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); onFile(e.dataTransfer.files[0]); }}
+    >
+      <ImageUp size={18} />
+      <b>{ELEVATION_LABEL[elevation]}</b>
+      <span>{elevation === "front" ? "Main view" : "Optional"}</span>
+      {picker}
+    </label>
+  );
+}
+
+export function ReferencePanel({ plan, projectId, onOpenGallery, onGo, onToast, onCheckMatch }: {
+  plan: FloorPlan;
+  projectId: string;
   onOpenGallery: () => void;
   onGo: (section: DesignSection) => void;
   onToast: (message: string) => void;
-  /** Picked but not generated yet. Held by the page so it survives switching panels. */
-  chosen: ReferenceImage | null;
-  onChoose: (reference: ReferenceImage | null) => void;
+  /** Renders the model from the front and reads it the same way as the reference. */
+  onCheckMatch: () => Promise<MatchRow[] | null>;
 }) {
   const house = useHouseDesign();
-  const { reference: applied, reading } = house.document;
-  const shown = chosen ?? applied;
+  const { references, images, reading, parameters, base } = house.document;
   const [error, setError] = useState<string | null>(null);
-  const [stage, setStage] = useState<GenerationStage | null>(null);
-  const [dragging, setDragging] = useState(false);
   const [deepAvailable, setDeepAvailable] = useState(false);
   const [deep, setDeep] = useState(false);
-  const input = useRef<HTMLInputElement | null>(null);
+  const [match, setMatch] = useState<MatchRow[] | null>(null);
+  const [matching, setMatching] = useState(false);
+  const isDemo = projectId === "demo";
 
   useEffect(() => {
     let cancelled = false;
     getAiStatus()
-      .then((status) => { if (!cancelled) setDeepAvailable(status.enabled); })
+      .then((status) => { if (!cancelled) setDeepAvailable(status.enabled && !isDemo); })
       .catch(() => { if (!cancelled) setDeepAvailable(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [isDemo]);
 
-  const onFile = async (file: File | undefined) => {
+  const views: GenerationView[] = references.flatMap((r) => (images[r.imageId] ? [{ elevation: r.elevation, image: images[r.imageId] }] : []));
+  const slotImage = (elevation: Elevation) => views.find((v) => v.elevation === elevation)?.image ?? null;
+  const sources = references.map((r) => r.imageId).sort();
+  const upToDate = Boolean(reading) && base?.sources?.join() === sources.join();
+  const stage = house.job.stage as GenerationStage | null;
+  const busy = stage !== null;
+  const shownError = error ?? house.job.error;
+  const hasUpload = views.some((v) => v.image.kind === "upload");
+
+  const onFile = async (elevation: Elevation, file: File | undefined) => {
     if (!file) return;
     setError(null);
+    setMatch(null);
     const loaded = await loadPhoto(file);
     if (!loaded.ok) {
       setError(loaded.reason);
       return;
     }
     try {
-      onChoose(await referenceFromUpload(loaded.url, file.name));
+      house.placeReference(elevation, await referenceFromUpload(loaded.url, file.name));
     } catch {
       setError("That image could not be read. It may be damaged.");
     } finally {
@@ -70,85 +131,45 @@ export function ReferencePanel({
   };
 
   const generate = async () => {
-    if (!shown) return;
+    if (!views.length) return;
     setError(null);
-    try {
-      const deepRead = deep
-        ? async (image: string): Promise<DeepReading | null> => {
-            try {
-              return await readHouseImage(image);
-            } catch {
-              onToast("The detailed reading was unavailable, so we used the on-device reading.");
-              return null;
-            }
-          }
-        : undefined;
-      const result = await generateFromReference(shown, { levels, deepRead, onStage: setStage });
-      house.applyGenerated(result.design, result.reading, shown);
-      onChoose(null);
-      onToast("Design generated. Your floor plan is unchanged.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The design could not be generated. Try another image.");
-    } finally {
-      setStage(null);
-    }
+    setMatch(null);
+    const deepRead = deep ? serverReader(projectId, () => onToast("The detailed reading was unavailable, so the on-device reading was used.")) : undefined;
+    const done = await house.runGeneration((onStage) => generateFromReferences(views, { plan, deepRead, onStage: (s) => onStage(s) }), (design) => baseRecord(plan, design, sources));
+    if (done) onToast("Design generated. Your floor plan is unchanged.");
   };
 
-  const remove = () => {
-    onChoose(null);
-    house.setReference(null);
-    setError(null);
+  const checkMatch = async () => {
+    setMatching(true);
+    setMatch(await onCheckMatch());
+    setMatching(false);
   };
 
-  const busy = stage !== null;
   const stages = STAGES.filter((s) => s !== "refining" || deep);
 
   return (
     <div className="hd-panel">
       <PanelHead eyebrow="Reference" title="Choose Your House Design">
-        Upload a photo or pick a design. The roof, facade, windows and materials are rebuilt on your floor plan, and your rooms and measurements stay exactly as drawn.
+        Add one photo, or a view of each side. The roof, facades, windows and materials are rebuilt on your floor plan, and your rooms and measurements stay exactly as drawn.
       </PanelHead>
 
-      {shown ? (
-        <figure className="hd-reference">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={shown.src} alt={`Reference: ${shown.name}`} />
-          <figcaption>
-            <span title={shown.name}>{shown.name}</span>
-            <div>
-              <button type="button" onClick={() => input.current?.click()} disabled={busy}><RefreshCw size={13} /> Replace</button>
-              <button type="button" onClick={remove} disabled={busy}><Trash2 size={13} /> Remove</button>
-            </div>
-          </figcaption>
-        </figure>
-      ) : (
-        <label
-          className={`hd-drop${dragging ? " over" : ""}`}
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setDragging(false); void onFile(e.dataTransfer.files[0]); }}
-        >
-          <ImageUp size={26} />
-          <b>Upload a house photo</b>
-          <span>Drop it here or click to browse. JPEG, PNG or WebP up to 8 MB.</span>
-          <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ""; }} />
-        </label>
-      )}
-      {shown && <input ref={input} className="hd-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ""; }} />}
+      <div className="hd-slots">
+        {ELEVATIONS.map((elevation) => (
+          <Slot key={elevation} elevation={elevation} image={slotImage(elevation)} disabled={busy} onFile={(file) => void onFile(elevation, file)} onRemove={() => { house.removeReference(elevation); setMatch(null); setError(null); }} />
+        ))}
+      </div>
+      <p className="hd-hint">JPEG, PNG or WebP up to 8 MB each. A rear or side view only changes that side of the house.</p>
 
       <button type="button" className="hd-button" onClick={onOpenGallery} disabled={busy}><LayoutGrid size={15} /> Browse the design gallery</button>
 
-      {error && <p className="hd-error" role="alert"><AlertTriangle size={14} /> {error}</p>}
+      {shownError && <p className="hd-error" role="alert"><AlertTriangle size={14} /> {shownError}</p>}
 
-      {shown && deepAvailable && shown.kind === "upload" && (
-        <Toggle label="Detailed reading" checked={deep} onChange={setDeep} hint="Sends a small copy of this photo to the NEXORA server for finer roof and window recognition. Without this, the photo stays on your device." />
+      {hasUpload && deepAvailable && (
+        <Toggle label="Detailed reading" checked={deep} onChange={setDeep} hint="Sends small copies of these photos to the NEXORA server for finer roof and window recognition. Without this, the photos stay on your device." />
       )}
 
-      {shown && !busy && (chosen || !reading) && (
-        <button type="button" className="hd-button primary" onClick={generate}><Wand2 size={15} /> Generate design</button>
-      )}
-      {shown && !busy && !chosen && reading && (
-        <button type="button" className="hd-button" onClick={generate}><Wand2 size={15} /> Generate again</button>
+      {views.length > 0 && !busy && (
+        <button type="button" className={`hd-button${upToDate ? "" : " primary"}`} onClick={generate}><Wand2 size={15} /> {upToDate ? "Generate again" : "Generate design"}</button>
       )}
 
       {busy && (
@@ -165,9 +186,9 @@ export function ReferencePanel({
         </ol>
       )}
 
-      {!busy && !chosen && reading && reading.attributes.length > 1 && (
+      {!busy && reading && reading.attributes.length > 1 && (
         <section className="hd-reading">
-          <h3>What we read from your photo</h3>
+          <h3>What we read from your {views.length > 1 ? "photos" : "photo"}</h3>
           {reading.palette.length > 0 && (
             <div className="hd-palette" aria-label="Colours found in the photo">
               {reading.palette.map((c) => <i key={c.hex} style={{ background: c.hex, flexGrow: Math.max(c.share, 0.06) }} title={`${c.hex} · ${Math.round(c.share * 100)}%`} />)}
@@ -188,8 +209,34 @@ export function ReferencePanel({
             })}
           </ul>
           {reading.notes.map((note) => <p key={note} className="hd-note">{note}</p>)}
-          <p className="hd-hint">One photo cannot show every side of a house, so this is a best match. Anything marked Check is worth a look; tap a row to correct it.</p>
+          <p className="hd-hint">Photos show what is visible, not the whole building, so this is a best match and not a reconstruction. Evidence labels say how much the photo supported each reading. Tap a row to correct it.</p>
+
+          <button type="button" className="hd-button" onClick={() => void checkMatch()} disabled={matching || !house.design}>
+            {matching ? <Loader2 size={15} className="hd-spin" /> : <ScanSearch size={15} />} Check the model against the reference
+          </button>
+          {match && (
+            match.length ? (
+              <table className="hd-match">
+                <thead><tr><th>Read from</th><th>Reference</th><th>Model</th><th /></tr></thead>
+                <tbody>
+                  {match.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.label}</td><td>{row.reference}</td><td>{row.model}</td>
+                      <td>{row.agrees ? <Check size={13} aria-label="Agrees" /> : <X size={13} aria-label="Differs" />}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p className="hd-note">There was nothing measured to compare. Gallery designs are built from their specification.</p>
+          )}
         </section>
+      )}
+
+      {parameters && (
+        <details className="hd-json">
+          <summary><ChevronDown size={13} /> Design parameters (JSON)</summary>
+          <pre>{JSON.stringify(parameters, null, 2)}</pre>
+        </details>
       )}
     </div>
   );

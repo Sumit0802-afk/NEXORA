@@ -1,6 +1,6 @@
 import type { FloorPlan } from "@houseplan/design-schema";
 import type { DeepReading } from "@/lib/house-design/interpret";
-import type { HouseDesignDocument } from "@/lib/house-design/schema";
+import type { Elevation, HouseDesignDocument } from "@/lib/house-design/schema";
 
 // Local development talks to the API on :8000. On any other host (the deployed site) the browser calls this site's own
 // /api, which Next forwards to the API (API_PROXY_TARGET in next.config.mjs), keeping the login cookie first-party.
@@ -96,9 +96,20 @@ export function saveHouseDesign(id: string, document: HouseDesignDocument): Prom
   return request(`/projects/${id}/house-design`, { method: "PUT", body: JSON.stringify(document) });
 }
 
-/** Optional finer reading of a reference photo; `image` is a downscaled data URL. */
-export function readHouseImage(image: string): Promise<DeepReading> {
-  return request<DeepReading>("/house-design/read-image", { method: "POST", body: JSON.stringify({ image }) });
+export type HouseReadJob = {
+  jobId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  result: Partial<Record<Elevation, DeepReading>> | null;
+  error: string | null;
+};
+
+/** Starts the optional finer reading of the reference views; each image is a downscaled data URL. */
+export function startHouseReadJob(id: string, views: { elevation: Elevation; image: string }[]): Promise<HouseReadJob> {
+  return request<HouseReadJob>(`/projects/${id}/house-design/jobs`, { method: "POST", body: JSON.stringify({ views }) });
+}
+
+export function getHouseReadJob(id: string, jobId: string): Promise<HouseReadJob> {
+  return request<HouseReadJob>(`/projects/${id}/house-design/jobs/${jobId}`);
 }
 
 export function renameProject(id: string, name: string): Promise<ProjectSummary> {

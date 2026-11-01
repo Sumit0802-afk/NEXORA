@@ -13,6 +13,8 @@ export type WallSegment = {
   kind: "exterior" | "interior" | "boundary";
   /** Floor index this piece belongs to. */
   level: number;
+  /** The whole wall run this piece was cut from; sills, lintels and solid pieces of one wall share it. */
+  runId: string;
 };
 
 export type RoomFloor = {
@@ -53,6 +55,8 @@ export type DoorLeaf = {
   centerX: number;
   centerZ: number;
   hostKind: WallSegment["kind"];
+  /** The wall run the door sits in. */
+  runId: string;
 };
 
 export type WindowPane = {
@@ -64,6 +68,8 @@ export type WindowPane = {
   angle: number;
   width: number;
   height: number;
+  /** The wall run the window sits in. */
+  runId: string;
 };
 
 export type SceneGeometry = {
@@ -279,11 +285,11 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
   }
 
   const walls: WallSegment[] = [];
-  const pushBox = (line: Line, from: number, to: number, baseY: number, height: number, thickness: number, kind: WallSegment["kind"], id: string) => {
+  const pushBox = (line: Line, from: number, to: number, baseY: number, height: number, thickness: number, kind: WallSegment["kind"], id: string, runId: string) => {
     if (to - from < EPS || height < EPS) return;
     const mid = (from + to) / 2;
     const [x, z] = line.axis === "h" ? toWorld(mid, line.at) : toWorld(line.at, mid);
-    walls.push({ id: tagPrefix + id, centerX: x, centerZ: z, baseY: elevation + baseY, length: to - from, angle: line.axis === "h" ? 0 : Math.PI / 2, thickness, height, kind, level: levelIndex });
+    walls.push({ id: tagPrefix + id, centerX: x, centerZ: z, baseY: elevation + baseY, length: to - from, angle: line.axis === "h" ? 0 : Math.PI / 2, thickness, height, kind, level: levelIndex, runId });
   };
 
   for (const [key, run] of pieces) {
@@ -291,22 +297,24 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
     const cuts = (cutsByLine.get(key) ?? []).sort((p, q) => p.from - q.from);
     run.forEach((piece, pi) => {
       let cursor = piece.from;
+      const runId = `${tagPrefix}L${levelIndex}-${key}-${pi}`;
       const inPiece = cuts.filter((c) => c.to > piece.from + EPS && c.from < piece.to - EPS);
       inPiece.forEach((c, ci) => {
         const from = Math.max(c.from, piece.from);
         const to = Math.min(c.to, piece.to);
         const tag = `${key}-${pi}-${ci}`;
-        pushBox(line, cursor, from, 0, piece.height, piece.thickness, piece.kind, `wall-${tag}`);
-        if (c.bottom > EPS) pushBox(line, from, to, 0, Math.min(c.bottom, piece.height), piece.thickness, piece.kind, `sill-${tag}`);
-        if (c.top < piece.height) pushBox(line, from, to, c.top, piece.height - c.top, piece.thickness, piece.kind, `lintel-${tag}`);
+        pushBox(line, cursor, from, 0, piece.height, piece.thickness, piece.kind, `wall-${tag}`, runId);
+        if (c.bottom > EPS) pushBox(line, from, to, 0, Math.min(c.bottom, piece.height), piece.thickness, piece.kind, `sill-${tag}`, runId);
+        if (c.top < piece.height) pushBox(line, from, to, c.top, piece.height - c.top, piece.thickness, piece.kind, `lintel-${tag}`, runId);
         cursor = Math.max(cursor, to);
       });
-      pushBox(line, cursor, piece.to, 0, piece.height, piece.thickness, piece.kind, `wall-${key}-${pi}-end`);
+      pushBox(line, cursor, piece.to, 0, piece.height, piece.thickness, piece.kind, `wall-${key}-${pi}-end`, runId);
     });
 
     for (const c of cuts) {
       const host = run.find((p) => c.to > p.from + EPS && c.from < p.to - EPS);
       if (!host) continue;
+      const runId = `${tagPrefix}L${levelIndex}-${key}-${run.indexOf(host)}`;
       const width = c.to - c.from;
       if (c.kind === "door") {
         const [hx, hz] = line.axis === "h" ? toWorld(c.from, line.at) : toWorld(line.at, c.from);
@@ -314,11 +322,11 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
         // Rotate from the wall direction toward the interior side by the swing angle.
         const swing = line.axis === "h" ? c.sign * DOOR_SWING : -c.sign * DOOR_SWING;
         const [mx, mz] = line.axis === "h" ? toWorld((c.from + c.to) / 2, line.at) : toWorld(line.at, (c.from + c.to) / 2);
-        doors.push({ id: c.id, baseY: elevation, hingeX: hx, hingeZ: hz, angle: base + swing, width, height: c.top, thickness: 0.15 * ft, level: levelIndex, wallAngle: base, centerX: mx, centerZ: mz, hostKind: host.kind });
+        doors.push({ id: c.id, baseY: elevation, hingeX: hx, hingeZ: hz, angle: base + swing, width, height: c.top, thickness: 0.15 * ft, level: levelIndex, wallAngle: base, centerX: mx, centerZ: mz, hostKind: host.kind, runId });
       } else {
         const mid = (c.from + c.to) / 2;
         const [x, z] = line.axis === "h" ? toWorld(mid, line.at) : toWorld(line.at, mid);
-        windows.push({ id: c.id, level: levelIndex, centerX: x, centerZ: z, baseY: elevation + c.bottom, angle: line.axis === "h" ? 0 : Math.PI / 2, width, height: c.top - c.bottom });
+        windows.push({ id: c.id, level: levelIndex, centerX: x, centerZ: z, baseY: elevation + c.bottom, angle: line.axis === "h" ? 0 : Math.PI / 2, width, height: c.top - c.bottom, runId });
       }
     }
   }

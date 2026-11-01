@@ -67,7 +67,7 @@ export function prepareSceneForExport(
       }
 
       // Check if roof mesh should be excluded
-      if (options.includeRoof === false && (obj.name.includes("Roof") || (obj.parent && obj.parent.name.includes("Roof")))) {
+      if (options.includeRoof === false && (obj.userData.roof || obj.name.includes("Roof") || (obj.parent && obj.parent.name.includes("Roof")))) {
         return;
       }
 
@@ -247,7 +247,11 @@ export async function exportSceneAsGLB(
   options: Export3DOptions = {},
   filename?: string,
   /** The input is already a clean export root, so it should not be filtered again. */
-  prepared = false
+  prepared = false,
+  /** Text glTF with everything embedded, instead of binary GLB. */
+  text = false,
+  /** Set to false to get the blob back without starting a download. */
+  download = true
 ): Promise<Blob> {
   const objectToExport =
     "schemaVersion" in input
@@ -268,7 +272,7 @@ export async function exportSceneAsGLB(
               : new Blob([JSON.stringify(gltf, null, 2)], { type: "application/json" });
 
           const fname = filename || `nexora-${options.projectName || "house-model"}.glb`;
-          triggerDownload(blob, fname);
+          if (download) triggerDownload(blob, fname);
           resolve(blob);
         } catch (err) {
           reject(err);
@@ -277,7 +281,7 @@ export async function exportSceneAsGLB(
       (err) => {
         reject(err);
       },
-      { binary: true, embedImages: true }
+      { binary: !text, embedImages: true }
     );
   });
 }

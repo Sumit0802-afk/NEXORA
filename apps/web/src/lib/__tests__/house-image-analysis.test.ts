@@ -208,7 +208,7 @@ describe("turning a reading into a design", () => {
   it("reports what it found, with confidence", () => {
     const summary = designFromAnalysis(reading, { levels: 2 }).reading;
     expect(summary.attributes.map((a) => a.id)).toEqual(expect.arrayContaining(["style", "wall", "roof", "windows", "door", "balcony"]));
-    expect(summary.attributes.every((a) => a.confidence >= 0 && a.confidence <= 1)).toBe(true);
+    expect(summary.attributes.every((a) => a.confidence !== null && a.confidence >= 0 && a.confidence <= 1)).toBe(true);
     expect(summary.palette.length).toBeGreaterThan(1);
   });
 

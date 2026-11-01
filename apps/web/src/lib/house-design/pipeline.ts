@@ -1,15 +1,16 @@
+import type { FloorPlan } from "@houseplan/design-schema";
+import { composeDesign, type Composition, type ViewReading } from "./design-engine";
 import { getGalleryDesign } from "./gallery";
-import { MAX_ANALYSIS_SIDE, analyzeFacade } from "./image-analysis";
-import { designFromAnalysis, type DeepReading } from "./interpret";
-import { cloneDesign, type HouseDesign, type ReadingSummary, type ReferenceImage } from "./schema";
-import { categoryLabel } from "./styles";
+import { MAX_ANALYSIS_SIDE, analyzeFacade, type FacadeAnalysis, type PixelImage } from "./image-analysis";
+import type { DeepReading } from "./interpret";
+import type { Elevation, ReferenceImage } from "./schema";
 
-/** The steps from a chosen picture to a design. Browser only. */
+/** The steps from chosen pictures to a design. Browser only. */
 
 export type GenerationStage = "preparing" | "reading" | "refining" | "composing";
 
 export const STAGE_LABEL: Record<GenerationStage, string> = {
-  preparing: "Preparing the image",
+  preparing: "Preparing the images",
   reading: "Reading the facade, roof and materials",
   refining: "Checking the details",
   composing: "Composing your design",
@@ -47,56 +48,82 @@ function drawScaled(img: HTMLImageElement, maxSide: number): HTMLCanvasElement {
 /** Keeps a smaller copy of an upload with the project. The original file stays on the device. */
 export async function referenceFromUpload(url: string, name: string): Promise<ReferenceImage> {
   const img = await loadImage(url);
-  const canvas = drawScaled(img, 1024);
-  return { kind: "upload", name, src: canvas.toDataURL("image/jpeg", 0.82), width: img.naturalWidth, height: img.naturalHeight };
+  const canvas = drawScaled(img, 900);
+  const id = `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  return { id, kind: "upload", name, src: canvas.toDataURL("image/jpeg", 0.8), width: img.naturalWidth, height: img.naturalHeight };
 }
 
 export function referenceFromGallery(id: string): ReferenceImage | null {
   const entry = getGalleryDesign(id);
-  return entry ? { kind: "gallery", name: entry.name, src: entry.image, width: 1600, height: 900, galleryId: id } : null;
+  return entry ? { id: `gallery-${id}`, kind: "gallery", name: entry.name, src: entry.image, width: 1600, height: 900, galleryId: id } : null;
 }
 
-export type GenerationResult = { design: HouseDesign; reading: ReadingSummary };
+/** Reads one image off the main thread where the browser allows it. */
+function readInWorker(image: ImageData): Promise<FacadeAnalysis> {
+  if (typeof Worker === "undefined") return Promise.resolve(analyzeFacade(image));
+  return new Promise((resolve) => {
+    const fallback = () => resolve(analyzeFacade(image));
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./analysis.worker.ts", import.meta.url));
+    } catch {
+      fallback();
+      return;
+    }
+    const finish = (run: () => void) => {
+      worker.terminate();
+      run();
+    };
+    worker.onmessage = (event: MessageEvent<{ analysis?: FacadeAnalysis }>) => finish(() => (event.data.analysis ? resolve(event.data.analysis) : fallback()));
+    worker.onerror = () => finish(fallback);
+    const message: { id: string; image: PixelImage } = { id: "view", image: { width: image.width, height: image.height, data: image.data } };
+    worker.postMessage(message);
+  });
+}
 
-export async function generateFromReference(
-  reference: ReferenceImage,
-  options: { levels: number; deepRead?: (image: string) => Promise<DeepReading | null>; onStage?: (stage: GenerationStage) => void }
-): Promise<GenerationResult> {
-  const { levels, deepRead, onStage } = options;
+async function readPixels(src: string): Promise<FacadeAnalysis> {
+  const small = drawScaled(await loadImage(src), MAX_ANALYSIS_SIDE);
+  return readInWorker(small.getContext("2d")!.getImageData(0, 0, small.width, small.height));
+}
+
+/** Reads a render of the model the same way a reference is read. */
+export const readImage = readPixels;
+
+export type GenerationView = { elevation: Elevation; image: ReferenceImage };
+
+/** Copies of the views for the optional server reading, keyed by side. */
+export type DeepReader = (images: { elevation: Elevation; image: string }[]) => Promise<Partial<Record<Elevation, DeepReading>> | null>;
+
+export async function generateFromReferences(
+  views: GenerationView[],
+  options: { plan: FloorPlan; deepRead?: DeepReader; onStage?: (stage: GenerationStage) => void }
+): Promise<Composition> {
+  const { plan, deepRead, onStage } = options;
   onStage?.("preparing");
   await nextFrame();
 
   // A gallery design is already a complete specification, so nothing has to be inferred from its picture.
-  const preset = getGalleryDesign(reference.galleryId);
-  if (preset) {
-    onStage?.("composing");
-    await nextFrame();
-    return {
-      design: cloneDesign(preset.design),
-      reading: {
-        attributes: [{ id: "style", label: "Architectural style", value: categoryLabel(preset.category), confidence: 1, section: "facade" }],
-        palette: [],
-        notes: [],
-        deepRead: false,
-      },
-    };
-  }
+  const gallery = views.map((v) => ({ view: v, entry: getGalleryDesign(v.image.galleryId) })).find((g) => g.entry);
+  const photos = views.filter((v) => !v.image.galleryId);
 
-  const img = await loadImage(reference.src);
-  const small = drawScaled(img, MAX_ANALYSIS_SIDE);
-  const pixels = small.getContext("2d")!.getImageData(0, 0, small.width, small.height);
   onStage?.("reading");
   await nextFrame();
-  const analysis = analyzeFacade(pixels);
+  const analyses: { elevation: Elevation; analysis: FacadeAnalysis }[] = [];
+  for (const view of photos) {
+    analyses.push({ elevation: view.elevation, analysis: await readPixels(view.image.src) });
+    await nextFrame();
+  }
 
-  let deep: DeepReading | null = null;
-  if (deepRead) {
+  let deep: Partial<Record<Elevation, DeepReading>> | null = null;
+  if (deepRead && photos.length) {
     onStage?.("refining");
     await nextFrame();
-    deep = await deepRead(drawScaled(img, 768).toDataURL("image/jpeg", 0.8));
+    const copies = await Promise.all(photos.map(async (v) => ({ elevation: v.elevation, image: drawScaled(await loadImage(v.image.src), 768).toDataURL("image/jpeg", 0.8) })));
+    deep = await deepRead(copies);
   }
 
   onStage?.("composing");
   await nextFrame();
-  return designFromAnalysis(analysis, { levels, deep });
+  const readings: ViewReading[] = analyses.map((a) => ({ ...a, deep: deep?.[a.elevation] ?? null }));
+  return composeDesign({ plan, views: readings, preset: gallery?.entry ? { design: gallery.entry.design, views: [gallery.view.elevation] } : null });
 }

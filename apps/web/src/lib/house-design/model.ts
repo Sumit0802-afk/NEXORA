@@ -1,23 +1,32 @@
-import type { FloorPlan, Opening, RoomType, Wall } from "@houseplan/design-schema";
-import { OPEN_TYPES, type DoorLeaf, type RoomFloor, type SceneGeometry, type WallSegment, type WindowPane } from "../scene-geometry";
+import type { FloorPlan, RoomType } from "@houseplan/design-schema";
+import { OPEN_TYPES, type DoorLeaf, type RoomFloor, type SceneGeometry, type WindowPane } from "../scene-geometry";
 import type { RailingStyle } from "../terrace-catalog";
-import type { CeilingStyle, DoorDesign, HouseDesign, WindowShape } from "./schema";
+import { EPS, isEnclosed, mergeRects, rectOf, subtract, type Pt, type Rect } from "./geometry-engine";
+import type { SceneObject, ObjectKind } from "./objects";
+import { ELEVATION_LABEL, type CeilingStyle, type DoorDesign, type Elevation, type HouseDesign, type ObjectOverride, type WindowGrid, type WindowShape, type WindowTrim } from "./schema";
+
+export { mergeRects, withFacadeOpenings } from "./geometry-engine";
+export type { Pt } from "./geometry-engine";
 
 /**
- * Turns the plan's scene geometry plus a design into building parts. Pure data and no Three.js, so it is testable and a
- * colour change never rebuilds geometry. Rooms, walls and openings come straight from the plan; everything here is
- * added around them (roof, cladding, window assemblies) and no room or wall ever moves.
+ * Model assembly: combines the plan's base geometry with a design into named building parts. Pure data and no Three.js,
+ * so it is testable and a colour change never rebuilds geometry. Rooms, walls and openings come straight from the
+ * plan; everything here is added around them (roof, cladding, window assemblies) and no room or wall ever moves.
+ * Every editable thing carries a semantic object id, which stays the same between rebuilds of the same plan.
  */
 
 export type Vec3 = [number, number, number];
-export type Pt = [number, number];
 
-export type Prim =
-  | { kind: "box"; part: string; center: Vec3; size: Vec3; rot?: Vec3 }
-  | { kind: "extrude"; part: string; outline: Pt[]; holes?: Pt[][]; depth: number; center: Vec3; rotY: number }
-  | { kind: "cylinder"; part: string; center: Vec3; radiusTop: number; radiusBottom: number; height: number; segments?: number }
-  | { kind: "blob"; part: string; center: Vec3; radius: number; squash?: number }
-  | { kind: "polygon"; part: string; points: Vec3[]; uv: Pt[] };
+type Tagged = { part: string; object?: string };
+
+export type Prim = Tagged &
+  (
+    | { kind: "box"; center: Vec3; size: Vec3; rot?: Vec3 }
+    | { kind: "extrude"; outline: Pt[]; holes?: Pt[][]; depth: number; center: Vec3; rotY: number }
+    | { kind: "cylinder"; center: Vec3; radiusTop: number; radiusBottom: number; height: number; segments?: number }
+    | { kind: "blob"; center: Vec3; radius: number; squash?: number }
+    | { kind: "polygon"; points: Vec3[]; uv: Pt[] }
+  );
 
 export type ModelLight = { position: Vec3; intensity: number; distance: number };
 
@@ -29,15 +38,11 @@ export type DesignModel = {
   roofTop: number;
   /** True when rooftop items (terrace rail, stair cabin) make sense on this roof. */
   walkableRoof: boolean;
+  /** Every selectable object in the house. */
+  objects: SceneObject[];
 };
 
 type Entry = { x: number; z: number; normal: Pt; width: number; height: number; street: boolean };
-type Rect = { x0: number; x1: number; z0: number; z1: number };
-
-const EPS = 0.01;
-
-const rectOf = (f: RoomFloor): Rect => ({ x0: f.centerX - f.width / 2, x1: f.centerX + f.width / 2, z0: f.centerZ - f.depth / 2, z1: f.centerZ + f.depth / 2 });
-const isEnclosed = (type: RoomType, name = "") => !OPEN_TYPES.has(type) && !/terrace|deck|porch|verandah?/i.test(name);
 
 function mulberry(seed: number) {
   let a = seed >>> 0;
@@ -65,141 +70,6 @@ class Frame {
   cylinder(part: string, at: Vec3, radius: number, height: number, segments = 12, topRadius = radius) {
     this.out.push({ kind: "cylinder", part, center: this.point(...at), radiusTop: topRadius, radiusBottom: radius, height, segments });
   }
-}
-
-// ── Blank-wall openings ──────────────────────────────────────────────────────
-
-const WINDOW_ROOMS: ReadonlySet<RoomType> = new Set<RoomType>(["living_room", "dining_room", "bedroom", "study", "kitchen", "bathroom"]);
-
-function subtract(from: number, to: number, blocks: Pt[]): Pt[] {
-  let spans: Pt[] = [[from, to]];
-  for (const [a, b] of blocks) {
-    spans = spans.flatMap(([s, e]): Pt[] => {
-      if (b <= s + EPS || a >= e - EPS) return [[s, e]];
-      const parts: Pt[] = [];
-      if (a > s + EPS) parts.push([s, a]);
-      if (b < e - EPS) parts.push([b, e]);
-      return parts;
-    });
-  }
-  return spans;
-}
-
-/**
- * A copy of the plan with windows on blank exterior walls and a front door if it has none, so a plan drawn without
- * openings can still show the chosen window and door design. The stored plan is untouched, and an opening the user
- * placed is never moved.
- */
-export function withFacadeOpenings(plan: FloorPlan, design: HouseDesign): FloorPlan {
-  const { fillBlankWalls, proportion } = design.exterior.window;
-  if (!fillBlankWalls) return plan;
-  const ft = plan.units === "m" ? 0.3048 : 1;
-  const plotW = plan.plot.width;
-  let added = 0;
-
-  const levels = plan.levels.map((level, levelIndex) => {
-    const rects = level.rooms
-      .filter((r) => isEnclosed(r.type, r.name))
-      .map((room) => {
-        const xs = room.polygon.map((p) => p[0]), ys = room.polygon.map((p) => p[1]);
-        return { room, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
-      });
-    const placed = level.openings
-      .map((o) => {
-        const host = level.walls.find((w) => w.id === o.wallId);
-        if (!host) return null;
-        const dx = host.end[0] - host.start[0], dy = host.end[1] - host.start[1];
-        const len = Math.hypot(dx, dy) || 1;
-        return { opening: o, host, x: host.start[0] + (dx / len) * o.offset, y: host.start[1] + (dy / len) * o.offset };
-      })
-      .filter(Boolean) as { opening: Opening; host: Wall; x: number; y: number }[];
-
-    type Edge = { axis: "h" | "v"; at: number; from: number; to: number; rect: (typeof rects)[number]; outward: Pt };
-    const edges: Edge[] = [];
-    for (const rect of rects) {
-      const sides: [Edge["axis"], number, number, number, Pt][] = [
-        ["h", rect.y0, rect.x0, rect.x1, [0, -1]],
-        ["h", rect.y1, rect.x0, rect.x1, [0, 1]],
-        ["v", rect.x0, rect.y0, rect.y1, [-1, 0]],
-        ["v", rect.x1, rect.y0, rect.y1, [1, 0]],
-      ];
-      for (const [axis, at, from, to, outward] of sides) {
-        const blocks = rects
-          .filter((other) => other !== rect)
-          .filter((o) => (axis === "h" ? Math.abs((outward[1] < 0 ? o.y1 : o.y0) - at) < EPS : Math.abs((outward[0] < 0 ? o.x1 : o.x0) - at) < EPS))
-          .map((o): Pt => (axis === "h" ? [o.x0, o.x1] : [o.y0, o.y1]));
-        for (const [a, b] of subtract(from, to, blocks)) edges.push({ axis, at, from: a, to: b, rect, outward });
-      }
-    }
-
-    const walls: Wall[] = [...level.walls];
-    const openings: Opening[] = [...level.openings];
-    const host = (edge: Edge): Wall => {
-      const wall: Wall = {
-        id: `hd-wall-${levelIndex}-${++added}`,
-        start: edge.axis === "h" ? [edge.from, edge.at] : [edge.at, edge.from],
-        end: edge.axis === "h" ? [edge.to, edge.at] : [edge.at, edge.to],
-        thickness: 0.75 * ft,
-        height: level.wallHeight,
-        kind: "exterior",
-      };
-      walls.push(wall);
-      return wall;
-    };
-    const occupied = (edge: Edge) =>
-      placed.some((p) => {
-        const on = edge.axis === "h" ? Math.abs(p.y - edge.at) < EPS : Math.abs(p.x - edge.at) < EPS;
-        const along = edge.axis === "h" ? p.x : p.y;
-        return on && along > edge.from - EPS && along < edge.to + EPS;
-      });
-
-    const hasExteriorDoor = placed.some((p) => p.opening.kind === "door" && p.host.kind === "exterior");
-    const wantsDoor = levelIndex === 0 && !hasExteriorDoor;
-    const doorEdge = wantsDoor
-      ? [...edges]
-          .filter((e) => e.outward[1] < 0 && e.to - e.from >= 4.5 * ft && !occupied(e))
-          .sort((p, q) => p.at - q.at || Number(q.rect.room.type === "living_room") - Number(p.rect.room.type === "living_room") || q.to - q.from - (p.to - p.from))[0]
-      : undefined;
-
-    for (const edge of edges) {
-      const type = edge.rect.room.type;
-      const len = edge.to - edge.from;
-      const onPlotSide = edge.axis === "v" && (edge.at < EPS || edge.at > plotW - EPS);
-      const hasWindow = placed.some(
-        (p) => p.opening.kind === "window" && p.x > edge.rect.x0 - EPS && p.x < edge.rect.x1 + EPS && p.y > edge.rect.y0 - EPS && p.y < edge.rect.y1 + EPS
-      );
-      if (edge === doorEdge) {
-        const wall = host(edge);
-        const width = Math.min(3.5 * ft, len - 1 * ft);
-        const offset = Math.max(width / 2 + 0.5 * ft, len * 0.3);
-        openings.push({ id: `hd-door-${added}`, wallId: wall.id, kind: "door", offset, width, height: 7.5 * ft });
-        if (WINDOW_ROOMS.has(type) && len >= 11 * ft) {
-          openings.push({ id: `hd-win-${added}`, wallId: wall.id, kind: "window", offset: len * 0.72, width: Math.min(len * 0.34, 7 * ft), ...sizeFor(proportion, ft) });
-        }
-        continue;
-      }
-      if (!WINDOW_ROOMS.has(type) || occupied(edge) || len < 3.5 * ft) continue;
-      if (onPlotSide && hasWindow) continue;
-      const bath = type === "bathroom";
-      const width = bath ? Math.min(2.5 * ft, len - ft) : Math.min(len - 2 * ft, proportion === "full" ? 10 * ft : proportion === "tall" ? 6 * ft : 4.5 * ft);
-      const count = !bath && len >= 17 * ft ? 2 : 1;
-      const wall = host(edge);
-      for (let i = 0; i < count; i++) {
-        openings.push({
-          id: `hd-win-${added}-${i}`, wallId: wall.id, kind: "window", offset: (len * (2 * i + 1)) / (2 * count), width,
-          ...(bath ? { sillHeight: 5 * ft, height: 2.2 * ft } : sizeFor(proportion, ft)),
-        });
-      }
-    }
-    return { ...level, walls, openings };
-  });
-  return added ? { ...plan, levels } : plan;
-}
-
-function sizeFor(proportion: HouseDesign["exterior"]["window"]["proportion"], ft: number) {
-  if (proportion === "full") return { sillHeight: 0.6 * ft, height: 7.4 * ft };
-  if (proportion === "tall") return { sillHeight: 2 * ft, height: 5.8 * ft };
-  return { sillHeight: 3 * ft, height: 4 * ft };
 }
 
 // ── Opening outlines ─────────────────────────────────────────────────────────
@@ -243,49 +113,9 @@ export function openingOutline(shape: WindowShape, w: number, h: number): Pt[] {
   }
 }
 
-// ── Footprints ───────────────────────────────────────────────────────────────
-
-/** Covers the cells of a rectilinear area with as few rectangles as a greedy pass finds, largest first. */
-export function mergeRects(rects: Rect[], minus: Rect[] = []): Rect[] {
-  const xs = [...new Set(rects.flatMap((r) => [r.x0, r.x1]).concat(minus.flatMap((r) => [r.x0, r.x1])).map((v) => Math.round(v * 1000) / 1000))].sort((a, b) => a - b);
-  const zs = [...new Set(rects.flatMap((r) => [r.z0, r.z1]).concat(minus.flatMap((r) => [r.z0, r.z1])).map((v) => Math.round(v * 1000) / 1000))].sort((a, b) => a - b);
-  const nx = xs.length - 1, nz = zs.length - 1;
-  if (nx < 1 || nz < 1) return [];
-  const inside = (r: Rect, x: number, z: number) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1;
-  const grid: boolean[][] = [];
-  for (let i = 0; i < nx; i++) {
-    grid[i] = [];
-    for (let j = 0; j < nz; j++) {
-      const cx = (xs[i] + xs[i + 1]) / 2, cz = (zs[j] + zs[j + 1]) / 2;
-      grid[i][j] = rects.some((r) => inside(r, cx, cz)) && !minus.some((r) => inside(r, cx, cz));
-    }
-  }
-  const out: Rect[] = [];
-  for (;;) {
-    let best: { i0: number; i1: number; j0: number; j1: number; area: number } | null = null;
-    for (let i0 = 0; i0 < nx; i0++) {
-      for (let j0 = 0; j0 < nz; j0++) {
-        if (!grid[i0][j0]) continue;
-        let maxJ = nz - 1;
-        for (let i1 = i0; i1 < nx && grid[i1][j0]; i1++) {
-          let j = j0;
-          while (j + 1 <= maxJ && grid[i1][j + 1]) j++;
-          maxJ = Math.min(maxJ, j);
-          const area = (xs[i1 + 1] - xs[i0]) * (zs[maxJ + 1] - zs[j0]);
-          if (!best || area > best.area) best = { i0, i1, j0, j1: maxJ, area };
-        }
-      }
-    }
-    if (!best) break;
-    for (let i = best.i0; i <= best.i1; i++) for (let j = best.j0; j <= best.j1; j++) grid[i][j] = false;
-    out.push({ x0: xs[best.i0], x1: xs[best.i1 + 1], z0: zs[best.j0], z1: zs[best.j1 + 1] });
-  }
-  return out;
-}
-
 // ── Facade helpers ───────────────────────────────────────────────────────────
 
-type Face = { level: number; horizontal: boolean; side: 1 | -1; plane: number; from: number; to: number; y0: number; y1: number };
+type Face = { object: string; level: number; horizontal: boolean; side: 1 | -1; plane: number; from: number; to: number; y0: number; y1: number };
 
 function addVeneer(out: Prim[], part: string, face: Face, from: number, to: number, y0: number, y1: number, depth: number) {
   if (to - from < EPS || y1 - y0 < EPS) return;
@@ -477,8 +307,7 @@ function buildRoof(ctx: RoofContext, r: Rect, y0: number): number {
 
 // ── Openings ─────────────────────────────────────────────────────────────────
 
-function buildWindow(out: Prim[], pane: WindowPane, normal: Pt, wallThickness: number, exterior: boolean, design: HouseDesign, ft: number) {
-  const win = design.exterior.window;
+function buildWindow(out: Prim[], pane: WindowPane, normal: Pt, wallThickness: number, exterior: boolean, win: { shape: WindowShape; grid: WindowGrid; trim: WindowTrim }, ft: number) {
   const rotY = Math.atan2(normal[0], normal[1]);
   const f = new Frame(out, pane.centerX, pane.baseY + pane.height / 2, pane.centerZ, rotY);
   const w = pane.width, h = pane.height;
@@ -581,9 +410,8 @@ function buildLeaf(f: Frame, cx: number, leafW: number, h: number, t: number, de
   }
 }
 
-function buildDoor(out: Prim[], door: DoorLeaf, normal: Pt, wallThickness: number, design: HouseDesign, doorsOpen: boolean, ft: number) {
+function buildDoor(out: Prim[], door: DoorLeaf, normal: Pt, wallThickness: number, look: DoorDesign, doorsOpen: boolean, ft: number) {
   const exterior = door.hostKind === "exterior";
-  const look = exterior ? design.exterior.door.design : design.interior.door.design;
   const part = exterior ? "door" : "interiorDoor";
   const h = door.height, w = door.width;
   const t = door.thickness;
@@ -701,9 +529,17 @@ function buildCeiling(out: Prim[], floor: RoomFloor, y: number, style: CeilingSt
 
 export type ModelOptions = { doorsOpen?: boolean };
 
+/** The side of the house a wall faces, as seen from the street, which lies at world -Z. */
+export function elevationOf(normal: Pt): Elevation {
+  if (Math.abs(normal[1]) >= Math.abs(normal[0])) return normal[1] < 0 ? "front" : "rear";
+  return normal[0] > 0 ? "left" : "right";
+}
+
+const levelName = (level: number) => (level === 0 ? "ground floor" : `floor ${level}`);
+
 /** The part of a design that affects shape. Finishes and tints are left out: they only change materials. */
 export function geometryKey(design: HouseDesign): string {
-  const colourOnly = new Set(["color", "foliage", "flowerColor", "hardware", "intensity"]);
+  const colourOnly = new Set(["color", "foliage", "flowerColor", "hardware", "intensity", "finishes", "source"]);
   return JSON.stringify(design, (key, value) => {
     if (colourOnly.has(key)) return undefined;
     if (value && typeof value === "object" && "materialId" in value) return undefined;
@@ -716,6 +552,15 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
   const out: Prim[] = [];
   const lights: ModelLight[] = [];
   const ext = design.exterior;
+  const registry = new Map<string, SceneObject>();
+  const override = (id: string): ObjectOverride | undefined => design.overrides[id];
+  /** Runs `build` and marks everything it adds as belonging to one object. */
+  const asObject = (object: Omit<SceneObject, "parts" | "bounds">, build: () => void) => {
+    const start = out.length;
+    build();
+    for (let i = start; i < out.length; i++) out[i].object = object.id;
+    if (!registry.has(object.id)) registry.set(object.id, { ...object, parts: [], bounds: null });
+  };
   const levels = [...new Set(geometry.floors.map((f) => f.level))].sort((a, b) => a - b);
   const levelFloors = (level: number) => geometry.floors.filter((f) => f.level === level);
   const enclosedAt = (level: number) => levelFloors(level).filter((f) => isEnclosed(f.type, f.name));
@@ -756,23 +601,41 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
   };
 
   for (const wall of geometry.walls) {
+    const horizontal = Math.abs(wall.angle) < 0.1;
+    const wallSide = (): Elevation | null => {
+      const eps = 0.05 * ft;
+      const low = horizontal ? roomAt(wall.level, wall.centerX, wall.centerZ - eps) : roomAt(wall.level, wall.centerX - eps, wall.centerZ);
+      const high = horizontal ? roomAt(wall.level, wall.centerX, wall.centerZ + eps) : roomAt(wall.level, wall.centerX + eps, wall.centerZ);
+      if (low && high) return null;
+      return elevationOf(horizontal ? [0, low ? 1 : -1] : [low ? 1 : -1, 0]);
+    };
     if (wall.kind === "boundary") {
+      const id = `${wall.level > 0 ? "railing" : "boundary"}:${wall.runId}`;
       if (wall.level > 0) {
         const half = wall.length / 2;
         const a: Pt = Math.abs(wall.angle) < 0.1 ? [wall.centerX - half, wall.centerZ] : [wall.centerX, wall.centerZ - half];
         const b: Pt = Math.abs(wall.angle) < 0.1 ? [wall.centerX + half, wall.centerZ] : [wall.centerX, wall.centerZ + half];
-        railRun(out, a, b, wall.baseY, ext.balcony.style, ext.balcony.height * ft, ft);
+        asObject({ id, kind: "railing", label: `Terrace railing, ${levelName(wall.level)}`, level: wall.level, elevation: null, host: null }, () => {
+          railRun(out, a, b, wall.baseY, override(id)?.balcony?.style ?? ext.balcony.style, (override(id)?.balcony?.height ?? ext.balcony.height) * ft, ft);
+        });
       } else {
         const f = new Frame(out, wall.centerX, wall.baseY + wall.height / 2, wall.centerZ, -wall.angle);
-        f.box("compound", [0, 0, 0], [wall.length, wall.height, wall.thickness]);
-        f.box("trim", [0, wall.height / 2 + 0.04 * ft, 0], [wall.length + 0.06 * ft, 0.08 * ft, wall.thickness + 0.12 * ft]);
+        asObject({ id, kind: "boundary", label: "Boundary wall", level: 0, elevation: null, host: null }, () => {
+          f.box("compound", [0, 0, 0], [wall.length, wall.height, wall.thickness]);
+          f.box("trim", [0, wall.height / 2 + 0.04 * ft, 0], [wall.length + 0.06 * ft, 0.08 * ft, wall.thickness + 0.12 * ft]);
+        });
       }
       continue;
     }
+    const wallId = `wall:${wall.runId}`;
+    const elevation = wall.kind === "exterior" ? wallSide() : null;
     const f = new Frame(out, wall.centerX, wall.baseY + wall.height / 2, wall.centerZ, -wall.angle);
-    f.box(wall.kind === "exterior" ? "walls" : "interiorWall", [0, 0, 0], [wall.length, wall.height, wall.thickness]);
+    const wallObject = {
+      id: wallId, kind: (wall.kind === "exterior" ? "wall" : "interiorWall") as ObjectKind,
+      label: `${elevation ? `${ELEVATION_LABEL[elevation]} wall` : "Interior wall"}, ${levelName(wall.level)}`, level: wall.level, elevation, host: null,
+    };
+    asObject(wallObject, () => f.box(wall.kind === "exterior" ? "walls" : "interiorWall", [0, 0, 0], [wall.length, wall.height, wall.thickness]));
 
-    const horizontal = Math.abs(wall.angle) < 0.1;
     const line = horizontal ? wall.centerZ : wall.centerX;
     const along = horizontal ? wall.centerX : wall.centerZ;
     const start = along - wall.length / 2, end = along + wall.length / 2;
@@ -787,7 +650,7 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
       for (const span of spans) {
         const mid = (span.from + span.to) / 2, length = span.to - span.from, offset = plane + side * 0.01 * ft;
         out.push({
-          kind: "box", part: `roomWall:${span.floor.id}`,
+          kind: "box", part: `roomWall:${span.floor.id}`, object: wallId,
           center: horizontal ? [mid, wall.baseY + wall.height / 2, offset] : [offset, wall.baseY + wall.height / 2, mid],
           size: horizontal ? [length, wall.height, 0.02 * ft] : [0.02 * ft, wall.height, length],
         });
@@ -797,7 +660,7 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
         const pointAt = (a: number): Pt => (horizontal ? [a, line] : [line, a]);
         const reachFrom = corners.has(cornerKey(wall.level, ...pointAt(from))) ? wall.thickness / 2 : 0;
         const reachTo = corners.has(cornerKey(wall.level, ...pointAt(to))) ? wall.thickness / 2 : 0;
-        faces.push({ level: wall.level, horizontal, side, plane, from: from - reachFrom, to: to + reachTo, y0: wall.baseY, y1: wall.baseY + wall.height });
+        faces.push({ object: wallId, level: wall.level, horizontal, side, plane, from: from - reachFrom, to: to + reachTo, y0: wall.baseY, y1: wall.baseY + wall.height });
       }
     }
   }
@@ -813,22 +676,34 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
   for (const floor of geometry.floors) {
     const height = floor.level > 0 ? slab * 8 : slab * 2;
     const y = floor.baseY + (floor.level > 0 && floor.type !== "other" ? slab * 4 : slab);
-    out.push({ kind: "box", part: `roomFloor:${floor.id}`, center: [floor.centerX, y, floor.centerZ], size: [Math.max(floor.width - 0.04, 0.02), height, Math.max(floor.depth - 0.04, 0.02)] });
+    asObject({ id: `floor:${floor.id}`, kind: "floor", label: `${floor.name} floor`, level: floor.level, elevation: null, host: null }, () => {
+      out.push({ kind: "box", part: `roomFloor:${floor.id}`, center: [floor.centerX, y, floor.centerZ], size: [Math.max(floor.width - 0.04, 0.02), height, Math.max(floor.depth - 0.04, 0.02)] });
+    });
     if (isEnclosed(floor.type, floor.name) && floor.type !== "staircase") {
       const style = design.interior.rooms[floor.id]?.ceilingStyle ?? design.interior.ceilingStyle;
-      buildCeiling(out, floor, wallTop(floor.level), style, ft);
+      asObject({ id: `ceiling:${floor.id}`, kind: "ceiling", label: `${floor.name} ceiling`, level: floor.level, elevation: null, host: null }, () => buildCeiling(out, floor, wallTop(floor.level), style, ft));
     }
   }
 
   // Openings.
   for (const pane of geometry.windows) {
     const { normal, outside } = outwardOf(pane.centerX, pane.centerZ, pane.angle, pane.level);
-    buildWindow(out, pane, normal, 0.75 * ft, outside, design, ft);
+    const id = `window:${pane.id}`;
+    const side = outside ? elevationOf(normal) : null;
+    asObject({ id, kind: "window", label: `${side ? `${ELEVATION_LABEL[side]} window` : "Interior window"}, ${levelName(pane.level)}`, level: pane.level, elevation: side, host: `wall:${pane.runId}`, modelOnly: pane.id.startsWith("hd-") }, () => {
+      buildWindow(out, pane, normal, 0.75 * ft, outside, { ...ext.window, ...override(id)?.window }, ft);
+    });
   }
   let entry: Entry | null = null;
   for (const door of geometry.doors) {
     const { normal } = outwardOf(door.centerX, door.centerZ, door.wallAngle, door.level);
-    buildDoor(out, door, normal, door.hostKind === "exterior" ? 0.75 * ft : 0.5 * ft, design, Boolean(options.doorsOpen), ft);
+    const id = `door:${door.id}`;
+    const isExterior = door.hostKind === "exterior";
+    const side = isExterior ? elevationOf(normal) : null;
+    const look = override(id)?.door?.design ?? (isExterior ? ext.door.design : design.interior.door.design);
+    asObject({ id, kind: isExterior ? "door" : "interiorDoor", label: `${side ? `${ELEVATION_LABEL[side]} door` : "Interior door"}, ${levelName(door.level)}`, level: door.level, elevation: side, host: `wall:${door.runId}`, modelOnly: door.id.startsWith("hd-") }, () => {
+      buildDoor(out, door, normal, isExterior ? 0.75 * ft : 0.5 * ft, look, Boolean(options.doorsOpen), ft);
+    });
     if (door.hostKind === "exterior" && door.level === levels[0]) {
       const street = normal[1] < 0;
       if (!entry || (street && !entry.street) || (street === entry.street && door.centerZ < entry.z)) {
@@ -860,19 +735,24 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
       default: return [fx0, fx1];
     }
   })();
+  const veneer = (part: string, face: Face, from: number, to: number, y0: number, y1: number, depth: number) => {
+    const start = out.length;
+    addVeneer(out, part, face, from, to, y0, y1, depth);
+    for (let i = start; i < out.length; i++) out[i].object = face.object;
+  };
   if (accentRange) {
     for (const face of streetFaces) {
       const from = Math.max(face.from, accentRange[0]), to = Math.min(face.to, accentRange[1]);
       if (to <= from) continue;
       const y0 = placement === "upper" ? Math.max(face.y0, upperY) : face.y0;
       const y1 = placement === "lower" ? Math.min(face.y1, upperY) : face.y1;
-      addVeneer(out, "accent", face, from, to, y0, y1, 0.08 * ft);
+      veneer("accent", face, from, to, y0, y1, 0.08 * ft);
       if (ext.details.fins && y1 - y0 > 3 * ft) {
         const spacing = 0.72 * ft;
         const count = Math.floor((to - from) / spacing);
         for (let i = 0; i <= count; i++) {
           const x = from + i * spacing;
-          addVeneer(out, "fins", face, x, x + 0.16 * ft, y0, y1, 0.42 * ft);
+          veneer("fins", face, x, x + 0.16 * ft, y0, y1, 0.42 * ft);
         }
       }
     }
@@ -885,19 +765,19 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
   for (const face of faces) {
     const elevation = levelFloors(face.level)[0]?.baseY ?? 0;
     const top = wallTop(face.level);
-    if (details.plinth && face.level === levels[0]) addVeneer(out, "base", face, face.from, face.to, Math.max(0, face.y0), Math.min(face.y1, 1.4 * ft), 0.1 * ft);
-    if (details.stringCourse && face.level !== levels[0] && face.y0 < elevation + 0.5 * ft) addVeneer(out, "trim", face, face.from - 0.1 * ft, face.to + 0.1 * ft, elevation - 0.25 * ft, elevation + 0.25 * ft, 0.2 * ft);
+    if (details.plinth && face.level === levels[0]) veneer("base", face, face.from, face.to, Math.max(0, face.y0), Math.min(face.y1, 1.4 * ft), 0.1 * ft);
+    if (details.stringCourse && face.level !== levels[0] && face.y0 < elevation + 0.5 * ft) veneer("trim", face, face.from - 0.1 * ft, face.to + 0.1 * ft, elevation - 0.25 * ft, elevation + 0.25 * ft, 0.2 * ft);
     if (details.cornice && Math.abs(face.y1 - top) < EPS) {
       const under = top - eaveDrop(0.34 * ft);
-      addVeneer(out, "trim", face, face.from - 0.25 * ft, face.to + 0.25 * ft, under - 0.5 * ft, under, 0.16 * ft);
-      addVeneer(out, "trim", face, face.from - 0.4 * ft, face.to + 0.4 * ft, under - 0.24 * ft, under, 0.34 * ft);
+      veneer("trim", face, face.from - 0.25 * ft, face.to + 0.25 * ft, under - 0.5 * ft, under, 0.16 * ft);
+      veneer("trim", face, face.from - 0.4 * ft, face.to + 0.4 * ft, under - 0.24 * ft, under, 0.34 * ft);
     }
     if (details.corbels && Math.abs(face.y1 - top) < EPS && face.side < 0 && face.horizontal) {
       const count = Math.floor((face.to - face.from) / (2 * ft));
       const under = top - eaveDrop(0.5 * ft);
       for (let i = 0; i < count; i++) {
         const x = face.from + (i + 0.5) * ((face.to - face.from) / count);
-        addVeneer(out, "corbel", face, x - 0.14 * ft, x + 0.14 * ft, under - 0.3 * ft, under, 0.5 * ft);
+        veneer("corbel", face, x - 0.14 * ft, x + 0.14 * ft, under - 0.3 * ft, under, 0.5 * ft);
       }
     }
   }
@@ -921,22 +801,32 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
     }
   }
 
-  // Projected balconies on upper street-facing windows. They hang off the wall; no room changes size.
+  // Projected balconies on upper windows of the chosen sides. They hang off the wall; no room changes size.
   if (ext.balcony.projected) {
     for (const pane of geometry.windows) {
       if (pane.level === levels[0]) continue;
       const { normal, outside } = outwardOf(pane.centerX, pane.centerZ, pane.angle, pane.level);
-      if (!outside || normal[1] >= 0 || pane.width < 2.8 * ft) continue;
+      const side = elevationOf(normal);
+      const id = `balcony:${pane.id}`;
+      const own = override(id);
+      if (!outside || !ext.balcony.elevations.includes(side) || pane.width < 2.8 * ft || own?.hidden) continue;
       const y = levelFloors(pane.level)[0]?.baseY ?? pane.baseY;
-      const depth = ext.balcony.depth * ft;
+      const depth = (own?.balcony?.depth ?? ext.balcony.depth) * ft;
       const width = pane.width + 1.6 * ft;
-      const rz = pane.centerZ - 0.375 * ft;
-      const fz = rz - depth;
-      out.push({ kind: "box", part: "balconySlab", center: [pane.centerX, y - 0.1 * ft, rz - depth / 2], size: [width, 0.42 * ft, depth] });
-      const h = ext.balcony.height * ft, x0 = pane.centerX - width / 2, x1 = pane.centerX + width / 2;
-      railRun(out, [x0, fz], [x1, fz], y + 0.1 * ft, ext.balcony.style, h, ft);
-      railRun(out, [x0, fz], [x0, rz], y + 0.1 * ft, ext.balcony.style, h, ft);
-      railRun(out, [x1, fz], [x1, rz], y + 0.1 * ft, ext.balcony.style, h, ft);
+      const wallFace = 0.375 * ft;
+      const f = new Frame(out, pane.centerX, 0, pane.centerZ, Math.atan2(normal[0], normal[1]));
+      const at = (lx: number, lz: number): Pt => {
+        const p = f.point(lx, 0, lz);
+        return [p[0], p[2]];
+      };
+      asObject({ id, kind: "balcony", label: `${ELEVATION_LABEL[side]} balcony, ${levelName(pane.level)}`, level: pane.level, elevation: side, host: `window:${pane.id}` }, () => {
+        f.box("balconySlab", [0, y - 0.1 * ft, wallFace + depth / 2], [width, 0.42 * ft, depth]);
+        const style = own?.balcony?.style ?? ext.balcony.style, h = (own?.balcony?.height ?? ext.balcony.height) * ft;
+        const a = at(-width / 2, wallFace + depth), b = at(width / 2, wallFace + depth);
+        railRun(out, a, b, y + 0.1 * ft, style, h, ft);
+        railRun(out, a, at(-width / 2, wallFace), y + 0.1 * ft, style, h, ft);
+        railRun(out, b, at(width / 2, wallFace), y + 0.1 * ft, style, h, ft);
+      });
     }
   }
 
@@ -948,18 +838,29 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
     const covered = above === undefined ? [] : levelFloors(above).map(rectOf);
     const parts = mergeRects(enclosedAt(level).map(rectOf), covered);
     const y0 = wallTop(level);
-    for (const rect of parts) roofTop = Math.max(roofTop, buildRoof(ctx, rect, y0));
+    parts.forEach((rect, section) => {
+      const id = `roof:L${level}-${section}`;
+      const own = override(id)?.roof;
+      const sectionDesign: HouseDesign = own ? { ...design, exterior: { ...ext, roof: { ...ext.roof, ...own } } } : design;
+      asObject({ id, kind: "roof", label: parts.length > 1 ? `Roof section ${section + 1}, ${levelName(level)}` : `Roof, ${levelName(level)}`, level, elevation: null, host: null }, () => {
+        roofTop = Math.max(roofTop, buildRoof({ ...ctx, design: sectionDesign }, rect, y0));
+      });
+    });
     if (above === undefined && (ext.roof.type === "flat" || ext.roof.type === "cantilever") && ext.roof.type !== "cantilever" && !ext.roof.parapet) {
       const hasStair = levelFloors(level).some((f) => f.type === "staircase");
       if (hasStair) {
-        for (const r of parts) {
+        parts.forEach((r, section) => {
+          const id = `railing:roof-L${level}-${section}`;
+          const own = override(id)?.balcony;
           const y = y0 + 0.6 * ft;
-          const h = ext.balcony.height * ft;
-          railRun(out, [r.x0, r.z0], [r.x1, r.z0], y, ext.balcony.style, h, ft);
-          railRun(out, [r.x0, r.z1], [r.x1, r.z1], y, ext.balcony.style, h, ft);
-          railRun(out, [r.x0, r.z0], [r.x0, r.z1], y, ext.balcony.style, h, ft);
-          railRun(out, [r.x1, r.z0], [r.x1, r.z1], y, ext.balcony.style, h, ft);
-        }
+          const h = (own?.height ?? ext.balcony.height) * ft, style = own?.style ?? ext.balcony.style;
+          asObject({ id, kind: "railing", label: "Roof terrace railing", level, elevation: null, host: null }, () => {
+            railRun(out, [r.x0, r.z0], [r.x1, r.z0], y, style, h, ft);
+            railRun(out, [r.x0, r.z1], [r.x1, r.z1], y, style, h, ft);
+            railRun(out, [r.x0, r.z0], [r.x0, r.z1], y, style, h, ft);
+            railRun(out, [r.x1, r.z0], [r.x1, r.z1], y, style, h, ft);
+          });
+        });
       }
     }
   });
@@ -968,15 +869,39 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
   if (entry) {
     const y = levelFloors(groundLevel)[0]?.baseY ?? 0;
     const entryWallTop = wallTop(groundLevel) - y;
-    buildPortico(out, entry, y, entryWallTop, design, ft);
+    const porch = entry;
+    if (ext.details.portico !== "none") {
+      asObject({ id: "portico:entry", kind: "portico", label: "Entrance portico", level: groundLevel, elevation: elevationOf(porch.normal), host: null }, () => buildPortico(out, porch, y, entryWallTop, design, ft));
+    }
   }
 
   const walkableRoof = (ext.roof.type === "flat" && !ext.roof.parapet) && geometry.floors.some((f) => f.level === levels[levels.length - 1] && f.type === "staircase");
-  buildSite(out, lights, geometry, plan, design, entry, streetFaces, ft);
-  return { prims: out, lights, entry, roofTop, walkableRoof };
+  buildSite(out, lights, geometry, plan, design, entry, streetFaces, ft, asObject);
+  return { prims: out, lights, entry, roofTop, walkableRoof, objects: finishObjects(registry, out) };
 }
 
-function buildSite(out: Prim[], lights: ModelLight[], geometry: SceneGeometry, plan: FloorPlan, design: HouseDesign, entry: Entry | null, streetFaces: Face[], ft: number) {
+/** Fills in each object's parts and bounds once the whole model exists. */
+function finishObjects(registry: Map<string, SceneObject>, prims: Prim[]): SceneObject[] {
+  const grow = (object: SceneObject, x: number, y: number, z: number, r = 0) => {
+    const b = (object.bounds ??= { min: [x - r, y - r, z - r], max: [x + r, y + r, z + r] });
+    b.min = [Math.min(b.min[0], x - r), Math.min(b.min[1], y - r), Math.min(b.min[2], z - r)];
+    b.max = [Math.max(b.max[0], x + r), Math.max(b.max[1], y + r), Math.max(b.max[2], z + r)];
+  };
+  for (const prim of prims) {
+    const object = prim.object ? registry.get(prim.object) : undefined;
+    if (!object) continue;
+    if (!object.parts.includes(prim.part)) object.parts.push(prim.part);
+    if (prim.kind === "polygon") prim.points.forEach((p) => grow(object, p[0], p[1], p[2]));
+    else if (prim.kind === "box") grow(object, prim.center[0], prim.center[1], prim.center[2], Math.max(...prim.size) / 2);
+    else if (prim.kind === "blob") grow(object, prim.center[0], prim.center[1], prim.center[2], prim.radius);
+    else grow(object, prim.center[0], prim.center[1], prim.center[2], prim.kind === "cylinder" ? prim.height / 2 : prim.depth);
+  }
+  return [...registry.values()].filter((o) => o.parts.length > 0);
+}
+
+type AsObject = (object: Omit<SceneObject, "parts" | "bounds">, build: () => void) => void;
+
+function buildSite(out: Prim[], lights: ModelLight[], geometry: SceneGeometry, plan: FloorPlan, design: HouseDesign, entry: Entry | null, streetFaces: Face[], ft: number, asObject: AsObject) {
   const env = design.environment;
   const W = geometry.plotWidth, L = geometry.plotDepth;
   const span = Math.max(W, L);
@@ -1014,11 +939,13 @@ function buildSite(out: Prim[], lights: ModelLight[], geometry: SceneGeometry, p
   // Driveway from each parking bay to the road.
   const parking = groundFloors.filter((f) => f.type === "parking").map(rectOf);
   const drives: Rect[] = [];
-  for (const bay of parking) {
+  parking.forEach((bay, index) => {
     const z0 = hasStreet ? frontZ - verge : frontZ;
     drives.push({ x0: bay.x0, x1: bay.x1, z0, z1: bay.z1 });
-    out.push({ kind: "box", part: "drive", center: [(bay.x0 + bay.x1) / 2, 0.02 * ft, (z0 + bay.z1) / 2], size: [bay.x1 - bay.x0, 0.08 * ft, bay.z1 - z0] });
-  }
+    asObject({ id: `drive:${index}`, kind: "driveway", label: "Driveway", level: 0, elevation: null, host: null }, () => {
+      out.push({ kind: "box", part: "drive", center: [(bay.x0 + bay.x1) / 2, 0.02 * ft, (z0 + bay.z1) / 2], size: [bay.x1 - bay.x0, 0.08 * ft, bay.z1 - z0] });
+    });
+  });
 
   // Path from the front door out to the street.
   const paths: Rect[] = [];
@@ -1108,17 +1035,24 @@ function buildSite(out: Prim[], lights: ModelLight[], geometry: SceneGeometry, p
     if (candidates.some(([cx, cz]) => Math.hypot(cx - x, cz - z) < 9 * ft)) continue;
     candidates.push([x, z]);
   }
-  candidates.forEach(([x, z]) => {
+  candidates.forEach(([x, z], index) => {
     const height = (6 + random() * 3) * ft, crown = (3.4 + random() * 2.4) * ft;
-    out.push({ kind: "cylinder", part: "trunk", center: [x, height / 2, z], radiusTop: 0.28 * ft, radiusBottom: 0.42 * ft, height, segments: 8 });
-    // A crown of overlapping clumps; the seeded offsets keep every tree different but repeatable.
-    out.push({ kind: "blob", part: "foliage", center: [x, height + crown * 0.55, z], radius: crown * 0.72, squash: 0.9 });
-    for (let i = 0; i < 6; i++) {
+    const clumps = Array.from({ length: 6 }, (_, i): Prim => {
       const angle = (i / 6) * Math.PI * 2 + random() * 0.6;
       const reachOut = crown * (0.48 + random() * 0.22);
       const clump = crown * (0.42 + random() * 0.14);
-      out.push({ kind: "blob", part: "foliage", center: [x + Math.cos(angle) * reachOut, height + crown * (0.12 + random() * 0.5), z + Math.sin(angle) * reachOut], radius: clump, squash: 0.86 });
-    }
+      return { kind: "blob", part: "foliage", center: [x + Math.cos(angle) * reachOut, height + crown * (0.12 + random() * 0.5), z + Math.sin(angle) * reachOut], radius: clump, squash: 0.86 };
+    });
+    const id = `tree:${index}`;
+    // Only the garden's own trees can be edited; the woods behind them are scenery.
+    if (index < env.trees && design.overrides[id]?.hidden) return;
+    const plant = () => {
+      out.push({ kind: "cylinder", part: "trunk", center: [x, height / 2, z], radiusTop: 0.28 * ft, radiusBottom: 0.42 * ft, height, segments: 8 });
+      // A crown of overlapping clumps; the seeded offsets keep every tree different but repeatable.
+      out.push({ kind: "blob", part: "foliage", center: [x, height + crown * 0.55, z], radius: crown * 0.72, squash: 0.9 }, ...clumps);
+    };
+    if (index < env.trees) asObject({ id, kind: "tree", label: `Tree ${index + 1}`, level: 0, elevation: null, host: null }, plant);
+    else plant();
   });
 
   // Outdoor lighting. Every fitting is real geometry; only the first few also cast light, which keeps it fast.

@@ -196,6 +196,24 @@ export function targetForPart(part: string): PartTarget | null {
   return (path && PAINTABLE_PARTS.find((p) => p.path === path)) || null;
 }
 
+const OBJECT_PART_LABEL: Record<string, string> = {
+  walls: "Wall surface", accent: "Accent cladding", fins: "Timber fins", base: "Plinth", trim: "Trim", corbel: "Corbels", roof: "Roof covering", fascia: "Fascia",
+  soffit: "Soffit", gableWall: "Gable wall", roofTrim: "Parapet coping", windowFrame: "Frame", glass: "Glass", shutter: "Shutters", shutterSlat: "Shutter slats", door: "Door leaf",
+  interiorDoor: "Door leaf", doorGlass: "Door glass", hardware: "Hardware", railing: "Railing", railGlass: "Railing glass", balconySlab: "Slab", step: "Steps", column: "Columns",
+  compound: "Wall", interiorWall: "Wall core", trunk: "Trunk", foliage: "Foliage", drive: "Surface",
+};
+
+/** What a part is called once an object is selected. A wall's room lining is named after the room. */
+export function objectPartLabel(part: string, roomName?: (id: string) => string | undefined): string {
+  if (part.startsWith("roomWall:")) return `${roomName?.(part.slice(9)) ?? "Room"} side`;
+  if (part.startsWith("roomFloor:")) return "Floor finish";
+  if (part.startsWith("ceiling:")) return "Ceiling finish";
+  return OBJECT_PART_LABEL[part] ?? partLabel(part);
+}
+
+/** The small pieces that follow their neighbour and need no controls of their own. */
+export const MINOR_PARTS: ReadonlySet<string> = new Set(["shutterSlat", "doorGroove", "coveLight", "ceilingBeam"]);
+
 /** A readable mesh name for model exports. */
 export function partLabel(part: string): string {
   const target = targetForPart(part);

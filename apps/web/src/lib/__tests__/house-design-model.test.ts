@@ -304,10 +304,10 @@ describe("real-time updates", () => {
     expect(surfaceFor("glass", DEFAULT_DESIGN, bareBox, "night").emissiveIntensity).toBeGreaterThan(0);
   });
 
-  it("merges primitives into one mesh per part", () => {
+  it("merges primitives into one mesh for each object's use of a part", () => {
     const m = model(bareBox);
     const meshes = buildPartGeometries(m.prims);
-    expect(meshes.size).toBe(new Set(m.prims.map((p) => p.part)).size);
+    expect(meshes.size).toBe(new Set(m.prims.map((p) => `${p.part}@${p.object}`)).size);
     for (const geometry of meshes.values()) {
       const position = geometry.getAttribute("position");
       expect(position.count).toBeGreaterThan(0);

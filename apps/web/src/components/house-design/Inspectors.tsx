@@ -8,7 +8,7 @@ import type { RailingStyle } from "@/lib/terrace-catalog";
 import { floorName } from "@/lib/floors";
 import { applyFacadeStyle } from "@/lib/house-design/styles";
 import { roomFinish } from "@/lib/house-design/surfaces";
-import { ARCH_CATEGORIES, type CeilingStyle, type DoorDesign, type Finish, type HouseDesign } from "@/lib/house-design/schema";
+import { ARCH_CATEGORIES, ELEVATIONS, ELEVATION_LABEL, type CeilingStyle, type DoorDesign, type Elevation, type Finish, type HouseDesign } from "@/lib/house-design/schema";
 import {
   Choices,
   ColorInput,
@@ -190,8 +190,11 @@ export function BalconyPanel({ design, edit, levels }: Props & { levels: number 
       />
       <Slider label="Railing height" value={b.height} min={2.8} max={4.5} step={0.1} unit=" ft" onChange={(v) => edit("exterior.balcony.height", v, "railHeight")} />
       <FinishPicker label="Railing" value={b.rail} categories={["metal", "paint", "wood", "stone"]} onChange={(f, g) => edit("exterior.balcony.rail", f, g)} />
-      <Group title="Added balconies" hint={levels > 1 ? "Hangs off upper street-facing windows. No room changes size." : "Needs an upper floor; your plan has one floor."}>
-        <Toggle label="Add balconies to the street side" checked={b.projected} onChange={(v) => edit("exterior.balcony.projected", v)} />
+      <Group title="Added balconies" hint={levels > 1 ? "Hangs off upper windows on the sides you choose. No room changes size." : "Needs an upper floor; your plan has one floor."}>
+        <Toggle label="Add balconies" checked={b.projected} onChange={(v) => edit("exterior.balcony.projected", v)} />
+        {b.projected && ELEVATIONS.map((side: Elevation) => (
+          <Toggle key={side} label={ELEVATION_LABEL[side]} checked={b.elevations.includes(side)} onChange={(on) => edit("exterior.balcony.elevations", on ? [...b.elevations, side] : b.elevations.filter((e) => e !== side))} />
+        ))}
         {b.projected && <Slider label="Depth" value={b.depth} min={1.5} max={6} step={0.1} unit=" ft" onChange={(v) => edit("exterior.balcony.depth", v, "balconyDepth")} />}
         <FinishPicker label="Slab edge" value={b.slab} categories={TRIM_MATERIALS} compact onChange={(f, g) => edit("exterior.balcony.slab", f, g)} />
       </Group>

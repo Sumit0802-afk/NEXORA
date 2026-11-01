@@ -12,62 +12,93 @@ import {
 } from "three";
 import type { FloorPlan, Room } from "@houseplan/design-schema";
 import type { DesignModel } from "@/lib/house-design/model";
+import { objectFinish } from "@/lib/house-design/objects";
 import type { HouseDesign, LightingPreview } from "@/lib/house-design/schema";
 import { isRoofPart, partLabel, surfaceFor } from "@/lib/house-design/surfaces";
-import { applySurface, buildPartGeometries, createPartMaterial, type PartMaterial } from "@/lib/house-design/three-build";
+import { applySurface, createPartMaterial, syncMeshes, type ModelMesh, type PartMaterial } from "@/lib/house-design/three-build";
 
-/** The customized house: one mesh per part, with materials updated in place as the design changes. */
+/** Layer for selection overlays: on screen and out of renders, exports and clicks. */
+export const OVERLAY_LAYER = 1;
+
+export type ModelPick = { part: string; object: string | null };
+
+/** The customized house. Materials update in place, and only meshes whose shape changed get new geometry. */
 export function DesignedHouse({
   model,
   design,
   plan,
   lighting,
   showRoof,
-  selectedPart,
-  onPickPart,
+  selection,
+  onPick,
+  highlight,
 }: {
   model: DesignModel;
   design: HouseDesign;
   plan: FloorPlan;
   lighting: LightingPreview;
   showRoof: boolean;
-  selectedPart?: string | null;
-  onPickPart?: (part: string | null) => void;
+  selection?: ModelPick | null;
+  onPick?: (pick: ModelPick | null) => void;
+  /** An object shown lightly, such as the row under the pointer in the object list. */
+  highlight?: string | null;
 }) {
-  const geometries = useMemo(() => buildPartGeometries(model.prims), [model]);
-  const previous = useRef<Map<string, BufferGeometry> | null>(null);
+  const cache = useRef(new Map<string, ModelMesh>());
+  const retired = useRef<BufferGeometry[]>([]);
+  const meshes = useMemo(() => {
+    const synced = syncMeshes(cache.current, model.prims);
+    cache.current = synced.meshes;
+    retired.current.push(...synced.stale);
+    return [...synced.meshes.values()];
+  }, [model]);
   useEffect(() => {
-    if (previous.current && previous.current !== geometries) previous.current.forEach((g) => g.dispose());
-    previous.current = geometries;
-  }, [geometries]);
-  useEffect(() => () => previous.current?.forEach((g) => g.dispose()), []);
+    retired.current.forEach((g) => g.dispose());
+    retired.current = [];
+  }, [meshes]);
+  useEffect(() => () => cache.current.forEach((m) => m.geometry.dispose()), []);
+
+  const camera = useThree((state) => state.camera);
+  useEffect(() => {
+    camera.layers.enable(OVERLAY_LAYER);
+  }, [camera]);
 
   const materials = useRef(new Map<string, PartMaterial>());
-  const parts = useMemo(() => [...geometries.keys()], [geometries]);
   const rooms = useMemo(() => new Map<string, Room>(plan.levels.flatMap((l) => l.rooms).map((r) => [r.id, r])), [plan]);
+  const hosts = useMemo(() => new Map(model.objects.map((o) => [o.id, o.host])), [model]);
   const units = plan.units === "m" ? 0.3048 : 1;
 
-  const materialFor = (part: string) => {
-    let material = materials.current.get(part);
+  /** An edited object gets a material of its own; everything else shares its part's. */
+  const materialKey = (mesh: ModelMesh) => (objectFinish(design, mesh.object, mesh.part, hosts) ? mesh.key : mesh.part);
+  const surfaceOf = (mesh: ModelMesh) => {
+    const base = surfaceFor(mesh.part, design, plan, lighting, rooms);
+    const own = objectFinish(design, mesh.object, mesh.part, hosts);
+    return own ? { ...base, ...own } : base;
+  };
+  const materialFor = (mesh: ModelMesh) => {
+    const key = materialKey(mesh);
+    let material = materials.current.get(key);
     if (!material) {
-      material = createPartMaterial(part);
-      applySurface(material, surfaceFor(part, design, plan, lighting, rooms), units);
-      materials.current.set(part, material);
+      material = createPartMaterial(mesh.part);
+      applySurface(material, surfaceOf(mesh), units);
+      materials.current.set(key, material);
     }
     return material;
   };
 
   useLayoutEffect(() => {
-    for (const part of parts) {
-      const material = materialFor(part);
-      applySurface(material, surfaceFor(part, design, plan, lighting, rooms), units);
-      if (part === selectedPart) {
-        material.emissive.set("#5146A5");
-        material.emissiveIntensity = 0.28;
+    const used = new Set<string>();
+    for (const mesh of meshes) {
+      used.add(materialKey(mesh));
+      applySurface(materialFor(mesh), surfaceOf(mesh), units);
+    }
+    for (const [key, material] of materials.current) {
+      if (!used.has(key) && key.includes("@")) {
+        material.dispose();
+        materials.current.delete(key);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parts, design, lighting, selectedPart, rooms, units]);
+  }, [meshes, design, lighting, rooms, units]);
 
   useEffect(() => {
     const store = materials.current;
@@ -78,29 +109,46 @@ export function DesignedHouse({
   }, []);
 
   const pick = (e: ThreeEvent<MouseEvent>) => {
-    if (!onPickPart || e.delta > 3) return;
+    if (!onPick || e.delta > 3) return;
     e.stopPropagation();
-    onPickPart((e.object.userData.part as string) ?? null);
+    const { part, object } = e.object.userData as { part: string; object?: string };
+    onPick({ part, object: object ?? null });
   };
+
+  const marked = (mesh: ModelMesh) => (selection?.object ? mesh.object === selection.object : selection?.part === mesh.part && !mesh.object) || (highlight != null && mesh.object === highlight);
 
   return (
     <group name="NEXORA_Designed_House">
-      {parts.map((part) => {
+      {meshes.map((mesh) => {
+        const { part, object } = mesh;
         const glass = part === "glass" || part === "railGlass" || part === "doorGlass";
         return (
           <mesh
-            key={part}
-            name={partLabel(part)}
-            userData={{ part, site: isSitePart(part) }}
-            geometry={geometries.get(part)}
-            material={materialFor(part)}
+            key={mesh.key}
+            name={object ? `${partLabel(part)} [${object}]` : partLabel(part)}
+            userData={{ part, object, site: isSitePart(part), roof: isRoofPart(part) }}
+            geometry={mesh.geometry}
+            material={materialFor(mesh)}
             visible={showRoof || !isRoofPart(part)}
             castShadow={!glass && !isFlatGround(part)}
             receiveShadow={!glass}
-            onClick={onPickPart ? pick : undefined}
+            onClick={onPick ? pick : undefined}
           />
         );
       })}
+      {meshes.filter(marked).map((mesh) => (
+        <mesh
+          key={`mark-${mesh.key}`}
+          name="Selection Helper"
+          ref={(node) => node?.layers.set(OVERLAY_LAYER)}
+          geometry={mesh.geometry}
+          visible={showRoof || !isRoofPart(mesh.part)}
+          raycast={() => null}
+          renderOrder={2}
+        >
+          <meshBasicMaterial color="#6C5FD4" transparent opacity={mesh.object === selection?.object ? 0.42 : 0.24} depthWrite={false} polygonOffset polygonOffsetFactor={-2} polygonOffsetUnits={-2} toneMapped={false} />
+        </mesh>
+      ))}
     </group>
   );
 }

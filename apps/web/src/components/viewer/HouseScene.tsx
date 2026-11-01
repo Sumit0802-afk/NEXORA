@@ -18,9 +18,11 @@ import { WalkthroughController } from "./WalkthroughController";
 import { FurniturePiece } from "./FurnitureGeometry";
 import { TerraceExteriorGeometry } from "./TerraceExteriorGeometry";
 import { StructuralFrameGeometry } from "./StructuralFrameGeometry";
-import { DesignAtmosphere, DesignedHouse } from "./DesignedHouse";
+import { DesignAtmosphere, DesignedHouse, OVERLAY_LAYER, type ModelPick } from "./DesignedHouse";
 import type { TerraceConfig, ExteriorConfig } from "@/lib/terrace-catalog";
+import { openingsKey } from "@/lib/house-design/geometry-engine";
 import { buildDesignModel, geometryKey, withFacadeOpenings } from "@/lib/house-design/model";
+import type { SceneObject } from "@/lib/house-design/objects";
 import type { HouseDesign, LightingPreview } from "@/lib/house-design/schema";
 
 export type SceneView = CameraView;
@@ -38,6 +40,7 @@ export type HouseSceneHandle = {
   /** Stands the camera inside a room at eye height, looking across it. */
   viewInterior: (roomId: string) => void;
   /** Renders the current view at a fixed pixel size, independent of the window. */
+  focusBounds: (bounds: { min: [number, number, number]; max: [number, number, number] }) => void;
   renderImage: (width: number, height: number, type?: "image/png" | "image/jpeg", quality?: number) => Promise<Blob | null>;
 };
 
@@ -678,9 +681,12 @@ type HouseSceneProps = {
   /** A customized house. Rooms and walls still come from `plan`; this adds the roof, facade, finishes and site. */
   houseDesign?: HouseDesign | null;
   lighting?: LightingPreview;
-  selectedPart?: string | null;
+  selection?: ModelPick | null;
+  highlightObject?: string | null;
   /** Called with the part under a click, or null. */
-  onPickPart?: (part: string | null) => void;
+  onPick?: (pick: ModelPick | null) => void;
+  /** Reports the objects in the model each time its shape is rebuilt. */
+  onModel?: (objects: SceneObject[]) => void;
   /** Follow another scene's camera instead of having controls of its own. */
   followCamera?: React.RefObject<HouseSceneHandle | null>;
 };
@@ -718,8 +724,10 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
     showStructuralFrame = true,
     houseDesign = null,
     lighting = "day",
-    selectedPart = null,
-    onPickPart,
+    selection = null,
+    highlightObject = null,
+    onPick,
+    onModel,
     followCamera,
   },
   ref
@@ -727,10 +735,12 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
   const designed = Boolean(houseDesign);
   // Only what changes the shape re-runs the model; a new colour reuses all of it.
   const shapeKey = houseDesign ? geometryKey(houseDesign) : null;
+  // Most shape edits leave the walls and openings alone, so the base geometry only rebuilds when those change.
+  const openings = houseDesign ? openingsKey(houseDesign) : null;
   const renderPlan = useMemo(
     () => (houseDesign ? withFacadeOpenings(plan, houseDesign) : plan),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [plan, shapeKey]
+    [plan, openings]
   );
   const geometry = useMemo(() => buildSceneGeometry(renderPlan, topLevel, hiddenLevels), [renderPlan, topLevel, hiddenLevels]);
   const designModel = useMemo(
@@ -738,8 +748,16 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [geometry, renderPlan, shapeKey, walkthroughMode]
   );
+  useEffect(() => {
+    if (designModel) onModel?.(designModel.objects);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designModel]);
   const topElevation = geometry.floors.reduce((max, f) => Math.max(max, f.baseY), 0);
-  const framing = useMemo(() => computeCameraFraming(geometry), [geometry]);
+  const measured = useMemo(() => computeCameraFraming(geometry), [geometry]);
+  const framingKey = JSON.stringify(measured);
+  // Keyed by value: an edit that leaves the building's size alone must not move the camera.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const framing = useMemo(() => measured, [framingKey]);
   const span = Math.max(geometry.plotWidth, geometry.plotDepth);
   const ft = plan.units === "m" ? 0.3048 : 1;
   const rendererRef = useRef<WebGLRenderer | null>(null);
@@ -810,14 +828,28 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
         gl.setSize(Math.round(width * scale), Math.round(height * scale), false);
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
+        camera.layers.disable(OVERLAY_LAYER);
         gl.render(scene, camera);
         const blob = await new Promise<Blob | null>((resolve) => gl.domElement.toBlob(resolve, type, quality));
         gl.setPixelRatio(pixelRatio);
         gl.setSize(before.x, before.y, false);
         camera.aspect = aspect;
         camera.updateProjectionMatrix();
+        camera.layers.enable(OVERLAY_LAYER);
         gl.render(scene, camera);
         return blob;
+      },
+      focusBounds: (bounds) => {
+        const controls = controlsRef.current;
+        if (!controls) return;
+        const { min, max } = bounds;
+        const center = new Vector3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+        const camera = controls.object;
+        const reach = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2], 8 * ft);
+        const direction = camera.position.clone().sub(controls.target).normalize();
+        controls.target.copy(center);
+        camera.position.copy(center).addScaledVector(direction, Math.max(reach * 2.2, 18 * ft));
+        controls.update();
       },
       focusRoom: (roomId: string) => {
         const floor = geometry.floors.find((f) => f.id === roomId);
@@ -861,7 +893,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
       gl={{ preserveDrawingBuffer: true, antialias: true }}
       onPointerMissed={() => {
         onSelectRoom?.(null);
-        onPickPart?.(null);
+        onPick?.(null);
       }}
     >
       {designModel ? (
@@ -931,8 +963,9 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
           plan={plan}
           lighting={lighting}
           showRoof={showRoof}
-          selectedPart={selectedPart}
-          onPickPart={onPickPart}
+          selection={selection}
+          highlight={highlightObject}
+          onPick={onPick}
         />
       )}
 

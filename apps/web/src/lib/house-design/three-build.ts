@@ -22,7 +22,10 @@ import type { Prim, Pt } from "./model";
 import { isTwoSided, type Surface } from "./surfaces";
 import { texturesFor, tintBoost } from "./textures";
 
-/** Merges the model's primitives into one geometry per part, with texture coordinates in world units. */
+/**
+ * Merges the model's primitives into geometry with texture coordinates in world units: one mesh for each object's use
+ * of a part, and one for each part's unowned pieces. Each mesh keeps its signature, so a rebuild only touches what changed.
+ */
 
 type Bucket = { position: number[]; normal: number[]; uv: number[] };
 
@@ -108,16 +111,10 @@ function jitter(geometry: BufferGeometry, seed: number, amount: number) {
   }
 }
 
-export function buildPartGeometries(prims: Prim[]): Map<string, BufferGeometry> {
-  const buckets = new Map<string, Bucket>();
-  const bucketFor = (part: string) => {
-    let b = buckets.get(part);
-    if (!b) buckets.set(part, (b = { position: [], normal: [], uv: [] }));
-    return b;
-  };
+function geometryFor(prims: Prim[]): BufferGeometry {
+  const bucket: Bucket = { position: [], normal: [], uv: [] };
   const matrix = new Matrix4();
-  prims.forEach((prim, index) => {
-    const bucket = bucketFor(prim.part);
+  for (const prim of prims) {
     switch (prim.kind) {
       case "box":
         pushBox(bucket, prim);
@@ -132,7 +129,7 @@ export function buildPartGeometries(prims: Prim[]): Map<string, BufferGeometry> 
       }
       case "blob": {
         const geometry = new IcosahedronGeometry(1, 3);
-        jitter(geometry, index, 0.22);
+        jitter(geometry, prim.center[0] * 7 + prim.center[2] * 3, 0.22);
         matrix.compose(new Vector3(...prim.center), new Quaternion(), new Vector3(prim.radius, prim.radius * (prim.squash ?? 1), prim.radius));
         pushGeometry(bucket, geometry, matrix);
         break;
@@ -147,17 +144,47 @@ export function buildPartGeometries(prims: Prim[]): Map<string, BufferGeometry> 
         break;
       }
     }
-  });
-  const out = new Map<string, BufferGeometry>();
-  for (const [part, bucket] of buckets) {
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(new Float32Array(bucket.position), 3));
-    geometry.setAttribute("normal", new BufferAttribute(new Float32Array(bucket.normal), 3));
-    geometry.setAttribute("uv", new BufferAttribute(new Float32Array(bucket.uv), 2));
-    geometry.computeBoundingSphere();
-    out.set(part, geometry);
   }
-  return out;
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(new Float32Array(bucket.position), 3));
+  geometry.setAttribute("normal", new BufferAttribute(new Float32Array(bucket.normal), 3));
+  geometry.setAttribute("uv", new BufferAttribute(new Float32Array(bucket.uv), 2));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+export type ModelMesh = { key: string; part: string; object: string | undefined; signature: string; geometry: BufferGeometry };
+
+/** Brings a set of meshes up to date with the primitives, reusing every mesh whose primitives did not change. */
+export function syncMeshes(current: Map<string, ModelMesh>, prims: Prim[]): { meshes: Map<string, ModelMesh>; built: number; reused: number; stale: BufferGeometry[] } {
+  const groups = new Map<string, Prim[]>();
+  for (const prim of prims) {
+    const key = prim.object ? `${prim.part}@${prim.object}` : prim.part;
+    const group = groups.get(key);
+    if (group) group.push(prim);
+    else groups.set(key, [prim]);
+  }
+  const meshes = new Map<string, ModelMesh>();
+  const stale: BufferGeometry[] = [];
+  let built = 0, reused = 0;
+  for (const [key, group] of groups) {
+    const signature = JSON.stringify(group);
+    const before = current.get(key);
+    if (before?.signature === signature) {
+      meshes.set(key, before);
+      reused++;
+      continue;
+    }
+    if (before) stale.push(before.geometry);
+    meshes.set(key, { key, part: group[0].part, object: group[0].object, signature, geometry: geometryFor(group) });
+    built++;
+  }
+  for (const [key, mesh] of current) if (!groups.has(key)) stale.push(mesh.geometry);
+  return { meshes, built, reused, stale };
+}
+
+export function buildPartGeometries(prims: Prim[]): Map<string, BufferGeometry> {
+  return new Map([...syncMeshes(new Map(), prims).meshes].map(([key, mesh]) => [key, mesh.geometry]));
 }
 
 export type PartMaterial = MeshStandardMaterial | MeshPhysicalMaterial;
