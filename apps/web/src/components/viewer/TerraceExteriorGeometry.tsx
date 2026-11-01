@@ -18,6 +18,8 @@ interface TerraceExteriorGeometryProps {
   showRoof?: boolean;
   selectedObjectId?: string | null;
   onSelectObject?: (id: string | null) => void;
+  /** A house design draws its own railings and site; only the rooftop structures come from here. */
+  designManaged?: boolean;
 }
 
 export function TerraceExteriorGeometry({
@@ -27,6 +29,7 @@ export function TerraceExteriorGeometry({
   showRoof = true,
   selectedObjectId,
   onSelectObject,
+  designManaged = false,
 }: TerraceExteriorGeometryProps) {
   // Derive roof bounds from geometry (same logic as in HouseScene GeneratedHouse)
   const topLevel = geometry.levelCount - 1;
@@ -205,7 +208,7 @@ export function TerraceExteriorGeometry({
   return (
     <group>
       {/* ── 1. PARAPET / RAILING PERIMETER AROUND ROOF ── */}
-      {roofW > 0 && roofD > 0 && (
+      {!designManaged && roofW > 0 && roofD > 0 && (
         <group>
           {/* North edge */}
           {renderRailingEdge("rail-n", centerX, roofMinZ, roofW, 0)}
@@ -364,7 +367,7 @@ export function TerraceExteriorGeometry({
 
       {/* ── 4. EXTERIOR FACADE & SITE ELEMENTS (Ground Level) ── */}
       {/* Front Entrance Portico */}
-      {exteriorConfig?.hasEntrancePortico && (
+      {!designManaged && exteriorConfig?.hasEntrancePortico && (
         <group position={[0, 9.8, -plotD / 2 - 1.5]}>
           <mesh castShadow receiveShadow>
             <boxGeometry args={[8.0, 0.4, 4.0]} />
@@ -379,7 +382,7 @@ export function TerraceExteriorGeometry({
       )}
 
       {/* Front Boundary Wall & Main Gate */}
-      {exteriorConfig?.hasBoundaryWall && (
+      {!designManaged && exteriorConfig?.hasBoundaryWall && (
         <group position={[0, 0, -plotD / 2 - 6.0]}>
           {/* Left masonry boundary wall */}
           <mesh position={[-plotW * 0.35, 2.2, 0]} castShadow receiveShadow>
@@ -409,7 +412,7 @@ export function TerraceExteriorGeometry({
       )}
 
       {/* Driveway Pavers */}
-      {exteriorConfig?.hasDrivewayPavers && (
+      {!designManaged && exteriorConfig?.hasDrivewayPavers && (
         <mesh position={[0, -0.02, -plotD / 2 - 3.0]} receiveShadow>
           <boxGeometry args={[11.0, 0.04, 6.0]} />
           <meshStandardMaterial color="#555A64" roughness={0.8} />
@@ -417,7 +420,7 @@ export function TerraceExteriorGeometry({
       )}
 
       {/* Front Garden Lawn */}
-      {exteriorConfig?.hasFrontGarden && (
+      {!designManaged && exteriorConfig?.hasFrontGarden && (
         <group>
           <mesh position={[-plotW * 0.32, -0.01, -plotD / 2 - 3.0]} receiveShadow>
             <boxGeometry args={[plotW * 0.3, 0.06, 5.5]} />

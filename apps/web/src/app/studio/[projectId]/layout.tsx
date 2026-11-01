@@ -1,3 +1,4 @@
+import { HouseDesignProvider } from "@/lib/house-design/context";
 import { PlanProvider } from "./plan-context";
 
 export default function StudioLayout({
@@ -7,5 +8,9 @@ export default function StudioLayout({
   children: React.ReactNode;
   params: { projectId: string };
 }) {
-  return <PlanProvider projectId={params.projectId}>{children}</PlanProvider>;
+  return (
+    <PlanProvider projectId={params.projectId}>
+      <HouseDesignProvider projectId={params.projectId}>{children}</HouseDesignProvider>
+    </PlanProvider>
+  );
 }

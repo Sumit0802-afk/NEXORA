@@ -1,10 +1,10 @@
 "use client";
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Grid, Html, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { BoxGeometry, Vector3, type WebGLRenderer, type Scene } from "three";
+import { BoxGeometry, PerspectiveCamera, Vector2, Vector3, type Camera, type WebGLRenderer, type Scene } from "three";
 import type { FloorPlan, FurnitureItem, RoomType } from "@houseplan/design-schema";
 import {
   buildSceneGeometry,
@@ -18,7 +18,10 @@ import { WalkthroughController } from "./WalkthroughController";
 import { FurniturePiece } from "./FurnitureGeometry";
 import { TerraceExteriorGeometry } from "./TerraceExteriorGeometry";
 import { StructuralFrameGeometry } from "./StructuralFrameGeometry";
+import { DesignAtmosphere, DesignedHouse } from "./DesignedHouse";
 import type { TerraceConfig, ExteriorConfig } from "@/lib/terrace-catalog";
+import { buildDesignModel, geometryKey, withFacadeOpenings } from "@/lib/house-design/model";
+import type { HouseDesign, LightingPreview } from "@/lib/house-design/schema";
 
 export type SceneView = CameraView;
 export type HouseSceneHandle = {
@@ -31,6 +34,11 @@ export type HouseSceneHandle = {
   zoomOut: () => void;
   focusRoom: (roomId: string) => void;
   viewTerrace: () => void;
+  getCamera: () => Camera | null;
+  /** Stands the camera inside a room at eye height, looking across it. */
+  viewInterior: (roomId: string) => void;
+  /** Renders the current view at a fixed pixel size, independent of the window. */
+  renderImage: (width: number, height: number, type?: "image/png" | "image/jpeg", quality?: number) => Promise<Blob | null>;
 };
 
 // ── Architectural Style Themes ──────────────────────────────────
@@ -199,6 +207,7 @@ function GeneratedHouse({
   showFurniture = true,
   selectedFurnitureId,
   onSelectFurniture,
+  designed = false,
 }: {
   plan: FloorPlan;
   geometry: SceneGeometry;
@@ -211,6 +220,8 @@ function GeneratedHouse({
   showFurniture?: boolean;
   selectedFurnitureId?: string | null;
   onSelectFurniture?: (id: string | null) => void;
+  /** A house design draws the shell; this keeps stairs, furniture, labels and selection. */
+  designed?: boolean;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const clip = (base: number, height: number) => (cutHeight === null ? height : Math.min(base + height, cutHeight) - base);
@@ -247,19 +258,23 @@ function GeneratedHouse({
   return (
     <group>
       {/* Foundation plinth */}
-      <mesh position={[0, -slab * 2, 0]} receiveShadow>
-        <boxGeometry args={[geometry.plotWidth + 0.6, slab * 3.5, geometry.plotDepth + 0.6]} />
-        <meshStandardMaterial color={theme.plinthColor} roughness={0.7} />
-      </mesh>
+      {!designed && (
+        <mesh position={[0, -slab * 2, 0]} receiveShadow>
+          <boxGeometry args={[geometry.plotWidth + 0.6, slab * 3.5, geometry.plotDepth + 0.6]} />
+          <meshStandardMaterial color={theme.plinthColor} roughness={0.7} />
+        </mesh>
+      )}
 
       {/* Site plot surface */}
-      <mesh position={[0, -slab * 0.1, 0]} receiveShadow>
-        <boxGeometry args={[geometry.plotWidth, slab * 0.2, geometry.plotDepth]} />
-        <meshStandardMaterial color={theme.groundColor} roughness={0.8} />
-      </mesh>
+      {!designed && (
+        <mesh position={[0, -slab * 0.1, 0]} receiveShadow>
+          <boxGeometry args={[geometry.plotWidth, slab * 0.2, geometry.plotDepth]} />
+          <meshStandardMaterial color={theme.groundColor} roughness={0.8} />
+        </mesh>
+      )}
 
       {/* Roof slab on top floor */}
-      {hasRoof && showRoof && cutHeight === null && roofW > 0 && roofD > 0 && (
+      {!designed && hasRoof && showRoof && cutHeight === null && roofW > 0 && roofD > 0 && (
         <mesh
           position={[(roofMinX + roofMaxX) / 2, roofY + roofThick / 2, (roofMinZ + roofMaxZ) / 2]}
           castShadow
@@ -282,26 +297,28 @@ function GeneratedHouse({
 
         return (
           <group key={floor.id}>
-            <mesh
-              position={[floor.centerX, floorY, floor.centerZ]}
-              receiveShadow
-              onPointerOver={pointer(floor.id)}
-              onPointerOut={pointer(null)}
-              onClick={(e) => {
-                if (!onSelectRoom) return;
-                e.stopPropagation();
-                onSelectRoom(floor.id);
-              }}
-            >
-              <boxGeometry args={[Math.max(floor.width - 0.04, 0.02), floorHeight, Math.max(floor.depth - 0.04, 0.02)]} />
-              <meshStandardMaterial
-                color={floorColor}
-                roughness={spec.roughness}
-                metalness={spec.metalness}
-                emissive={selected ? "#5146A5" : hot ? "#7B71C8" : "#000000"}
-                emissiveIntensity={selected ? 0.55 : hot ? 0.22 : 0}
-              />
-            </mesh>
+            {!designed && (
+              <mesh
+                position={[floor.centerX, floorY, floor.centerZ]}
+                receiveShadow
+                onPointerOver={pointer(floor.id)}
+                onPointerOut={pointer(null)}
+                onClick={(e) => {
+                  if (!onSelectRoom) return;
+                  e.stopPropagation();
+                  onSelectRoom(floor.id);
+                }}
+              >
+                <boxGeometry args={[Math.max(floor.width - 0.04, 0.02), floorHeight, Math.max(floor.depth - 0.04, 0.02)]} />
+                <meshStandardMaterial
+                  color={floorColor}
+                  roughness={spec.roughness}
+                  metalness={spec.metalness}
+                  emissive={selected ? "#5146A5" : hot ? "#7B71C8" : "#000000"}
+                  emissiveIntensity={selected ? 0.55 : hot ? 0.22 : 0}
+                />
+              </mesh>
+            )}
 
             {/* Custom room lighting ambiance */}
             {room?.interior?.lightingColor && (
@@ -336,7 +353,7 @@ function GeneratedHouse({
           const items = (level.furniture || []) as FurnitureItem[];
           const floorY = level.elevation + (lvIdx > 0 ? slab * 4 : slab);
           return (
-            <group key={`furn-level-${level.id}`}>
+            <group key={`furn-level-${level.id}`} name={`furn-level-${level.id}`}>
               {items.map((item) => {
                 const worldItem: FurnitureItem = {
                   ...item,
@@ -362,7 +379,7 @@ function GeneratedHouse({
         })}
 
       {/* Walls */}
-      {geometry.walls.map((wall) => {
+      {!designed && geometry.walls.map((wall) => {
         if (cutHeight !== null && wall.baseY >= cutHeight) return null;
         const height = clip(wall.baseY, wall.height);
         if (height <= 0) return null;
@@ -392,7 +409,7 @@ function GeneratedHouse({
       })}
 
       {/* Doors */}
-      {geometry.doors.map((door) => {
+      {!designed && geometry.doors.map((door) => {
         if (cutHeight !== null && door.baseY >= cutHeight) return null;
         const height = clip(door.baseY, door.height);
         if (height <= 0) return null;
@@ -418,7 +435,7 @@ function GeneratedHouse({
       })}
 
       {/* Windows */}
-      {geometry.windows.map((pane) => {
+      {!designed && geometry.windows.map((pane) => {
         if (cutHeight !== null && pane.baseY >= cutHeight) return null;
         const height = clip(pane.baseY, pane.height);
         if (height <= 0) return null;
@@ -504,12 +521,15 @@ function CameraRig({
   resetToken,
   controlsRef,
   walkthroughMode = false,
+  smooth = false,
 }: {
   view: SceneView;
   framing: ReturnType<typeof computeCameraFraming>;
   resetToken: number;
   controlsRef: React.MutableRefObject<OrbitControlsImpl | null>;
   walkthroughMode?: boolean;
+  /** Glide to a new view instead of jumping. */
+  smooth?: boolean;
 }) {
   const { camera, size } = useThree();
   // The framing assumes a landscape canvas; a portrait one sees much less sideways, so the camera has to stand further off.
@@ -518,6 +538,9 @@ function CameraRig({
   const targetY = view === "top" ? 0 : framing.targetY;
   const targetZ = framing.targetZ ?? 0;
 
+  const glide = useRef<{ fromPos: Vector3; toPos: Vector3; fromTarget: Vector3; toTarget: Vector3; start: number } | null>(null);
+  const placed = useRef(false);
+
   useEffect(() => {
     if (walkthroughMode) return;
     const rawPos = framing.positions[view];
@@ -525,19 +548,46 @@ function CameraRig({
     const y = targetY + (rawPos[1] - targetY) * aspectBackoff;
     const z = targetZ + (rawPos[2] - targetZ) * aspectBackoff;
 
-    camera.up.set(0, view === "top" ? 0 : 1, view === "top" ? -1 : 0);
-    camera.position.set(x, y, z);
     if ("near" in camera && "far" in camera) {
       camera.near = framing.near;
       camera.far = framing.far;
       camera.updateProjectionMatrix();
     }
+    const controls = controlsRef.current;
+    if (smooth) {
+      if (controls) Object.assign(controls, { minDistance: 4, maxPolarAngle: Math.PI / 2.04 });
+      if (placed.current && controls) {
+        glide.current = {
+          fromPos: camera.position.clone(), toPos: new Vector3(x, y, z),
+          fromTarget: controls.target.clone(), toTarget: new Vector3(targetX, targetY, targetZ),
+          start: performance.now(),
+        };
+        return;
+      }
+    } else {
+      camera.up.set(0, view === "top" ? 0 : 1, view === "top" ? -1 : 0);
+    }
+    placed.current = true;
+    camera.position.set(x, y, z);
     camera.lookAt(targetX, targetY, targetZ);
+    if (controls) {
+      controls.target.set(targetX, targetY, targetZ);
+      controls.update();
+    }
+  }, [view, framing, camera, resetToken, aspectBackoff, targetX, targetY, targetZ, controlsRef, walkthroughMode, smooth]);
+
+  useFrame(() => {
+    const move = glide.current;
+    if (!move) return;
+    const t = Math.min(1, (performance.now() - move.start) / 550);
+    const eased = t * t * (3 - 2 * t);
+    camera.position.lerpVectors(move.fromPos, move.toPos, eased);
     if (controlsRef.current) {
-      controlsRef.current.target.set(targetX, targetY, targetZ);
+      controlsRef.current.target.lerpVectors(move.fromTarget, move.toTarget, eased);
       controlsRef.current.update();
     }
-  }, [view, framing, camera, resetToken, aspectBackoff, targetX, targetY, targetZ, controlsRef, walkthroughMode]);
+    if (t >= 1) glide.current = null;
+  });
 
   return (
     <OrbitControls
@@ -551,6 +601,24 @@ function CameraRig({
       maxDistance={framing.far * 0.85}
     />
   );
+}
+
+/** Keeps a second view on the same camera as the first, for side-by-side comparison. */
+function FollowCamera({ source }: { source: React.RefObject<HouseSceneHandle | null> }) {
+  const { camera } = useThree();
+  useFrame(() => {
+    const from = source.current?.getCamera();
+    if (!from) return;
+    camera.position.copy(from.position);
+    camera.quaternion.copy(from.quaternion);
+    if (from instanceof PerspectiveCamera && camera instanceof PerspectiveCamera) {
+      camera.near = from.near;
+      camera.far = from.far;
+      camera.fov = from.fov;
+      camera.updateProjectionMatrix();
+    }
+  });
+  return null;
 }
 
 function RendererBridge({
@@ -607,6 +675,14 @@ type HouseSceneProps = {
   onSelectTerraceObject?: (id: string | null) => void;
   /** Whether to render 3D concrete structural frame (columns, beams, footings) */
   showStructuralFrame?: boolean;
+  /** A customized house. Rooms and walls still come from `plan`; this adds the roof, facade, finishes and site. */
+  houseDesign?: HouseDesign | null;
+  lighting?: LightingPreview;
+  selectedPart?: string | null;
+  /** Called with the part under a click, or null. */
+  onPickPart?: (part: string | null) => void;
+  /** Follow another scene's camera instead of having controls of its own. */
+  followCamera?: React.RefObject<HouseSceneHandle | null>;
 };
 
 export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function HouseScene(
@@ -640,10 +716,28 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
     selectedTerraceObjectId = null,
     onSelectTerraceObject,
     showStructuralFrame = true,
+    houseDesign = null,
+    lighting = "day",
+    selectedPart = null,
+    onPickPart,
+    followCamera,
   },
   ref
 ) {
-  const geometry = useMemo(() => buildSceneGeometry(plan, topLevel, hiddenLevels), [plan, topLevel, hiddenLevels]);
+  const designed = Boolean(houseDesign);
+  // Only what changes the shape re-runs the model; a new colour reuses all of it.
+  const shapeKey = houseDesign ? geometryKey(houseDesign) : null;
+  const renderPlan = useMemo(
+    () => (houseDesign ? withFacadeOpenings(plan, houseDesign) : plan),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [plan, shapeKey]
+  );
+  const geometry = useMemo(() => buildSceneGeometry(renderPlan, topLevel, hiddenLevels), [renderPlan, topLevel, hiddenLevels]);
+  const designModel = useMemo(
+    () => (houseDesign ? buildDesignModel(geometry, renderPlan, houseDesign, { doorsOpen: walkthroughMode }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [geometry, renderPlan, shapeKey, walkthroughMode]
+  );
   const topElevation = geometry.floors.reduce((max, f) => Math.max(max, f.baseY), 0);
   const framing = useMemo(() => computeCameraFraming(geometry), [geometry]);
   const span = Math.max(geometry.plotWidth, geometry.plotDepth);
@@ -686,6 +780,45 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
           controls.update();
         }
       },
+      getCamera: () => controlsRef.current?.object ?? null,
+      viewInterior: (roomId: string) => {
+        const floor = geometry.floors.find((f) => f.id === roomId);
+        const controls = controlsRef.current;
+        if (!floor || !controls) return;
+        const camera = controls.object;
+        const eye = floor.baseY + 5 * ft;
+        if (camera instanceof PerspectiveCamera) {
+          camera.near = 0.1 * ft;
+          camera.updateProjectionMatrix();
+        }
+        // Inside a room the camera has to be able to look up at the ceiling and get close to things.
+        Object.assign(controls, { minDistance: 0.5 * ft, maxPolarAngle: Math.PI * 0.86 });
+        controls.target.set(floor.centerX, eye + 0.4 * ft, floor.centerZ);
+        camera.position.set(floor.centerX - floor.width * 0.38, eye, floor.centerZ - floor.depth * 0.38);
+        controls.update();
+      },
+      renderImage: async (width, height, type = "image/png", quality) => {
+        const gl = rendererRef.current, scene = threeSceneRef.current;
+        const camera = controlsRef.current?.object;
+        if (!gl || !scene || !(camera instanceof PerspectiveCamera)) return null;
+        const limit = gl.capabilities.maxTextureSize;
+        const scale = Math.min(1, limit / Math.max(width, height));
+        const before = gl.getSize(new Vector2());
+        const pixelRatio = gl.getPixelRatio();
+        const aspect = camera.aspect;
+        gl.setPixelRatio(1);
+        gl.setSize(Math.round(width * scale), Math.round(height * scale), false);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        gl.render(scene, camera);
+        const blob = await new Promise<Blob | null>((resolve) => gl.domElement.toBlob(resolve, type, quality));
+        gl.setPixelRatio(pixelRatio);
+        gl.setSize(before.x, before.y, false);
+        camera.aspect = aspect;
+        camera.updateProjectionMatrix();
+        gl.render(scene, camera);
+        return blob;
+      },
       focusRoom: (roomId: string) => {
         const floor = geometry.floors.find((f) => f.id === roomId);
         const controls = controlsRef.current;
@@ -716,7 +849,7 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
         controls.update();
       },
     }),
-    [framing.far, geometry.floors, geometry.wallHeight, geometry.levelCount, geometry.walls, geometry.plotWidth, geometry.plotDepth]
+    [framing.far, geometry.floors, geometry.wallHeight, geometry.levelCount, geometry.walls, geometry.plotWidth, geometry.plotDepth, ft]
   );
 
   return (
@@ -726,48 +859,57 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
       flat
       dpr={[1, 2]}
       gl={{ preserveDrawingBuffer: true, antialias: true }}
-      onPointerMissed={() => onSelectRoom?.(null)}
+      onPointerMissed={() => {
+        onSelectRoom?.(null);
+        onPickPart?.(null);
+      }}
     >
-      <color attach="background" args={[theme.bgColor]} />
-      <fog attach="fog" args={[theme.fogColor, span * 2.8, span * 6]} />
+      {designModel ? (
+        <DesignAtmosphere lighting={lighting} span={span} lights={designModel.lights} />
+      ) : (
+        <>
+          <color attach="background" args={[theme.bgColor]} />
+          <fog attach="fog" args={[theme.fogColor, span * 2.8, span * 6]} />
 
-      {/* Primary sun light */}
-      <directionalLight
-        position={[span * 0.75, span * 1.15, span * 0.55]}
-        intensity={theme.sunIntensity}
-        color="#FFF9F0"
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-left={-span * 0.9}
-        shadow-camera-right={span * 0.9}
-        shadow-camera-top={span * 0.9}
-        shadow-camera-bottom={-span * 0.9}
-        shadow-camera-far={span * 4.5}
-        shadow-bias={-0.0003}
-      />
+          {/* Primary sun light */}
+          <directionalLight
+            position={[span * 0.75, span * 1.15, span * 0.55]}
+            intensity={theme.sunIntensity}
+            color="#FFF9F0"
+            castShadow
+            shadow-mapSize-width={2048}
+            shadow-mapSize-height={2048}
+            shadow-camera-left={-span * 0.9}
+            shadow-camera-right={span * 0.9}
+            shadow-camera-top={span * 0.9}
+            shadow-camera-bottom={-span * 0.9}
+            shadow-camera-far={span * 4.5}
+            shadow-bias={-0.0003}
+          />
 
-      {/* Sky fill from opposite angle */}
-      <directionalLight
-        position={[-span * 0.65, span * 0.75, -span * 0.45]}
-        intensity={0.65}
-        color={theme.skyColor}
-      />
+          {/* Sky fill from opposite angle */}
+          <directionalLight
+            position={[-span * 0.65, span * 0.75, -span * 0.45]}
+            intensity={0.65}
+            color={theme.skyColor}
+          />
 
-      {/* Hemisphere bounce */}
-      <hemisphereLight args={["#FFFFFF", "#D8D0C2", 0.9]} />
+          {/* Hemisphere bounce */}
+          <hemisphereLight args={["#FFFFFF", "#D8D0C2", 0.9]} />
 
-      {/* Ambient fill */}
-      <ambientLight intensity={0.28} color="#FFF8F2" />
+          {/* Ambient fill */}
+          <ambientLight intensity={0.28} color="#FFF8F2" />
 
-      {/* Studio floor plane */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06 * ft, 0]} receiveShadow>
-        <planeGeometry args={[span * 8, span * 8]} />
-        <meshStandardMaterial color={theme.groundColor} roughness={0.9} />
-      </mesh>
+          {/* Studio floor plane */}
+          <mesh name="studio-floor" rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06 * ft, 0]} receiveShadow>
+            <planeGeometry args={[span * 8, span * 8]} />
+            <meshStandardMaterial color={theme.groundColor} roughness={0.9} />
+          </mesh>
+        </>
+      )}
 
       {/* Architectural grid */}
-      {showGrid && (
+      {showGrid && !designed && (
         <Grid
           args={[span * 3.5, span * 3.5]}
           cellSize={ft}
@@ -782,9 +924,22 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
       )}
 
       {/* House geometry */}
+      {designModel && houseDesign && (
+        <DesignedHouse
+          model={designModel}
+          design={houseDesign}
+          plan={plan}
+          lighting={lighting}
+          showRoof={showRoof}
+          selectedPart={selectedPart}
+          onPickPart={onPickPart}
+        />
+      )}
+
       <GeneratedHouse
         plan={plan}
         geometry={geometry}
+        designed={designed}
         cutHeight={cutaway ? topElevation + 4.5 * ft : null}
         showRoof={showRoof}
         showLabels={showLabels && !walkthroughMode}
@@ -797,14 +952,17 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
       />
 
       {/* Rooftop Terrace & Exterior Designer Architecture */}
-      <TerraceExteriorGeometry
-        geometry={geometry}
-        terraceConfig={terraceConfig}
-        exteriorConfig={exteriorConfig}
-        showRoof={showRoof}
-        selectedObjectId={selectedTerraceObjectId}
-        onSelectObject={onSelectTerraceObject}
-      />
+      {(!designModel || designModel.walkableRoof) && (
+        <TerraceExteriorGeometry
+          geometry={geometry}
+          terraceConfig={terraceConfig}
+          exteriorConfig={exteriorConfig}
+          showRoof={showRoof}
+          selectedObjectId={selectedTerraceObjectId}
+          onSelectObject={onSelectTerraceObject}
+          designManaged={designed}
+        />
+      )}
 
       {/* 3D Structural Frame (Concrete Columns, Beams, Footings) */}
       <StructuralFrameGeometry plan={plan} visible={showStructuralFrame} />
@@ -824,13 +982,18 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
         mobileInputs={mobileWalkthroughInputs}
       />
 
-      <CameraRig
-        view={view}
-        framing={framing}
-        resetToken={resetToken}
-        controlsRef={controlsRef}
-        walkthroughMode={walkthroughMode}
-      />
+      {followCamera ? (
+        <FollowCamera source={followCamera} />
+      ) : (
+        <CameraRig
+          view={view}
+          framing={framing}
+          resetToken={resetToken}
+          controlsRef={controlsRef}
+          walkthroughMode={walkthroughMode}
+          smooth={designed}
+        />
+      )}
       <RendererBridge rendererRef={rendererRef} sceneRef={threeSceneRef} />
     </Canvas>
   );

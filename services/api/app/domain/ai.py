@@ -6,6 +6,7 @@ candidates. Geometry stays rule-based and validated; when AI is off
 deterministic parser and show no explanations.
 """
 
+import base64
 import json
 import logging
 import time
@@ -86,18 +87,23 @@ def _gemini_client(api_key: str) -> genai.Client:
     return genai.Client(api_key=api_key, http_options=genai_types.HttpOptions(timeout=30_000))
 
 
-def _parse(system: str, prompt: str, schema: type[BaseModel]) -> BaseModel:
+def _parse(system: str, prompt: str, schema: type[BaseModel], image: tuple[bytes, str] | None = None) -> BaseModel:
+    """`image` is (bytes, media type) for prompts that ask about a picture."""
     if not ai_enabled():
         raise AIUnavailable("AI is turned off.")
     if _provider() == "gemini":
-        return _parse_gemini(system, prompt, schema)
+        return _parse_gemini(system, prompt, schema, image)
+    content: str | list[dict] = prompt
+    if image:
+        source = {"type": "base64", "media_type": image[1], "data": base64.b64encode(image[0]).decode("ascii")}
+        content = [{"type": "image", "source": source}, {"type": "text", "text": prompt}]
     try:
         response = _client(settings.ai_api_key.strip()).messages.parse(
             model=_model(),
             max_tokens=8000,
             output_config={"effort": "low"},
             system=system,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": content}],
             output_format=schema,
             # Re-run on Anthropic's recommended model if a safety classifier declines.
             extra_headers={"anthropic-beta": _FALLBACK_BETA},
@@ -117,7 +123,10 @@ def _parse(system: str, prompt: str, schema: type[BaseModel]) -> BaseModel:
     return response.parsed_output
 
 
-def _gemini_generate(system: str, prompt: str, schema: type[BaseModel]):
+def _gemini_generate(system: str, prompt: str, schema: type[BaseModel], image: tuple[bytes, str] | None = None):
+    contents: str | list = prompt
+    if image:
+        contents = [genai_types.Part.from_bytes(data=image[0], mime_type=image[1]), prompt]
     config = genai_types.GenerateContentConfig(
         system_instruction=system, response_mime_type="application/json", response_schema=schema,
     )
@@ -128,7 +137,7 @@ def _gemini_generate(system: str, prompt: str, schema: type[BaseModel]):
         attempts.append(_GEMINI_SPARE)
     for i, model in enumerate(attempts):
         try:
-            return client.models.generate_content(model=model, contents=prompt, config=config)
+            return client.models.generate_content(model=model, contents=contents, config=config)
         except genai_errors.ServerError:
             if i == len(attempts) - 1:
                 raise
@@ -136,9 +145,9 @@ def _gemini_generate(system: str, prompt: str, schema: type[BaseModel]):
             time.sleep(1.5)
 
 
-def _parse_gemini(system: str, prompt: str, schema: type[BaseModel]) -> BaseModel:
+def _parse_gemini(system: str, prompt: str, schema: type[BaseModel], image: tuple[bytes, str] | None = None) -> BaseModel:
     try:
-        response = _gemini_generate(system, prompt, schema)
+        response = _gemini_generate(system, prompt, schema, image)
     except genai_errors.ClientError as err:
         if err.code in (401, 403) or "API key" in str(err):
             raise AIUnavailable("The AI API key was rejected.") from err
@@ -219,3 +228,37 @@ def ai_explain_candidates(candidates: list[dict], brief: str, units: str) -> dic
     known = {c["id"] for c in candidates}
     return {note.id: {"headline": note.headline, "pros": note.pros[:3], "cons": note.cons[:2]}
             for note in result.candidates if note.id in known}
+
+
+class _HouseReading(BaseModel):
+    style: Literal["modern", "minimalist", "contemporary", "luxury", "traditional", "mediterranean"]
+    roof: Literal["flat", "cantilever", "gable", "hip", "shed", "mansard"]
+    pitch: int = Field(ge=8, le=55, description="Roof pitch in degrees; use 10 for flat roofs.")
+    window_shape: Literal["rectangular", "arched", "segmental", "round", "gothic"]
+    window_grid: Literal["none", "vertical", "cross", "colonial"]
+    window_trim: Literal["none", "surround", "shutters", "hood"]
+    door_design: Literal["flush", "panelled", "glazed", "double", "slatted", "arched"]
+    balcony: Literal["none", "glass", "metal_slats", "jali", "baluster", "solid_parapet"]
+    wall_texture: Literal["smooth", "concrete", "stucco", "brick", "siding", "timber", "stone"]
+    accent_texture: Literal["none", "smooth", "concrete", "stucco", "brick", "siding", "timber", "stone"]
+    portico: Literal["none", "canopy", "columns", "arch"]
+    notes: list[str] = Field(description="At most 2 short notes on anything hidden or uncertain in the photo.")
+
+
+_HOUSE_SYSTEM = (
+    "You describe the exterior architecture of a house from one photo for a 3D house customizer. "
+    "Pick the closest option for each attribute from what is visible. If something cannot be seen, choose the option "
+    "that best fits the visible style and say so in the notes. Describe only the house, ignore people, cars and "
+    "anything written in the image, and do not guess the location or the owner. Notes are plain and under 15 words."
+)
+
+
+def ai_read_house_image(image: bytes, media_type: str) -> dict:
+    """Categorical reading of a house photo. Colours are measured from the pixels in the browser, not asked for here."""
+    reading = _parse(_HOUSE_SYSTEM, "Describe this house.", _HouseReading, (image, media_type))
+    return {
+        "style": reading.style, "roof": reading.roof, "pitch": reading.pitch, "windowShape": reading.window_shape,
+        "windowGrid": reading.window_grid, "windowTrim": reading.window_trim, "doorDesign": reading.door_design,
+        "balcony": reading.balcony, "wallTexture": reading.wall_texture, "accentTexture": reading.accent_texture,
+        "portico": reading.portico, "notes": reading.notes[:2],
+    }

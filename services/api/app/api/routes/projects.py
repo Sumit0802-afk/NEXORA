@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.db.models import DesignVersion, Project, User
+from app.db.models import DesignVersion, HouseDesign, Project, User
 from app.db.session import get_db
 from app.domain.geometry import validate_floor_plan
 
@@ -161,6 +161,9 @@ def duplicate_project(project_id: UUID, db: Session = Depends(get_db), user: Use
     design["projectId"] = str(copy.id)
     design["name"] = copy.name
     db.add(DesignVersion(project_id=copy.id, version_number=1, design_json=design))
+    house = db.get(HouseDesign, source.id)
+    if house:
+        db.add(HouseDesign(project_id=copy.id, document=dict(house.document)))
     db.commit()
     db.refresh(copy)
     return _summarize(db, copy)

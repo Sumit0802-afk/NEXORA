@@ -55,6 +55,7 @@ import { DEFAULT_TERRACE_CONFIG, DEFAULT_EXTERIOR_CONFIG, type TerraceConfig, ty
 import { createProject, saveDesign } from "@/lib/api";
 import { buildSceneGeometry } from "@/lib/scene-geometry";
 import { usePlanContext } from "../plan-context";
+import { useHouseDesign } from "@/lib/house-design/context";
 import { floorName } from "@/lib/floors";
 import { useRouter } from "next/navigation";
 import type { FloorPlan } from "@houseplan/design-schema";
@@ -83,6 +84,7 @@ function genId(prefix: string) {
    ════════════════════════════════════════════════════════════ */
 export default function Preview3DPage({ params }: { params: { projectId: string } }) {
   const { plan, loadError, isDemo, projectName, pushPlan, save, saving } = usePlanContext();
+  const { design: houseDesign } = useHouseDesign();
 
   // ── 3D viewport state ──
   const [view, setView]           = useState<SceneView>("perspective");
@@ -399,6 +401,13 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
             <span className="studio-sync-dot" />
             <span>Live 2D Sync</span>
           </div>
+          <Link
+            className="button primary"
+            href={`/studio/${params.projectId}/design`}
+            title="Style this house from a photo or the design gallery, then customize every surface"
+          >
+            <Home size={14} style={{ marginRight: 5 }} />Choose Your House Design
+          </Link>
           <button
             className="button"
             onClick={() => setShowTerraceModal(true)}
@@ -879,6 +888,7 @@ export default function Preview3DPage({ params }: { params: { projectId: string 
                     mobileWalkthroughInputs={mobileWalkInputs}
                     terraceConfig={terraceConfig}
                     exteriorConfig={exteriorConfig}
+                    houseDesign={houseDesign}
                   />
                 )}
               </div>

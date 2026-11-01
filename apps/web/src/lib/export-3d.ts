@@ -11,8 +11,24 @@ export type Export3DOptions = {
   includeFurniture?: boolean;
   includeRoof?: boolean;
   includeTerrace?: boolean;
+  /** Ground, planting, street and lamps. Only house-design scenes tag these. */
+  includeSite?: boolean;
   projectName?: string;
 };
+
+function hasAncestorNamed(obj: THREE.Object3D, text: string): boolean {
+  for (let node = obj.parent; node; node = node.parent) {
+    if (node.name.includes(text)) return true;
+  }
+  return false;
+}
+
+function isShown(obj: THREE.Object3D): boolean {
+  for (let node: THREE.Object3D | null = obj; node; node = node.parent) {
+    if (!node.visible) return false;
+  }
+  return true;
+}
 
 /** Prepares a live Three.js scene for export by filtering out camera rigs, grids, and UI overlays. */
 export function prepareSceneForExport(
@@ -36,8 +52,17 @@ export function prepareSceneForExport(
     }
 
     if (obj instanceof THREE.Mesh) {
+      // The studio ground and the grid are part of the viewer, not of the house.
+      if (obj.name === "studio-floor" || obj.material instanceof THREE.ShaderMaterial || !isShown(obj)) {
+        return;
+      }
+
       // Check if it's the ground floor plane (usually 8x the plot size)
       if (obj.geometry instanceof THREE.PlaneGeometry && obj.geometry.parameters.width > 200) {
+        return;
+      }
+
+      if (options.includeSite === false && obj.userData.site) {
         return;
       }
 
@@ -47,7 +72,7 @@ export function prepareSceneForExport(
       }
 
       // Check if furniture mesh should be excluded
-      if (options.includeFurniture === false && (obj.name.includes("Furniture") || (obj.parent && obj.parent.name.includes("furn")))) {
+      if (options.includeFurniture === false && (obj.name.includes("Furniture") || hasAncestorNamed(obj, "furn"))) {
         return;
       }
 
@@ -220,12 +245,16 @@ export function buildStandaloneThreeScene(
 export async function exportSceneAsGLB(
   input: THREE.Object3D | FloorPlan,
   options: Export3DOptions = {},
-  filename?: string
+  filename?: string,
+  /** The input is already a clean export root, so it should not be filtered again. */
+  prepared = false
 ): Promise<Blob> {
   const objectToExport =
     "schemaVersion" in input
       ? buildStandaloneThreeScene(input, options)
-      : prepareSceneForExport(input, options);
+      : prepared
+        ? input
+        : prepareSceneForExport(input, options);
 
   return new Promise<Blob>((resolve, reject) => {
     const exporter = new GLTFExporter();

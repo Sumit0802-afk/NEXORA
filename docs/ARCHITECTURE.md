@@ -10,6 +10,10 @@
 - **Background work:** Redis/Celery planned for smart generation and exports.
 - **Object storage:** Store large exports and user assets outside the relational database.
 
+## House design studio
+
+`/studio/[projectId]/design` restyles the 3D house from a photo or a gallery design. `apps/web/src/lib/house-design` holds it: `image-analysis.ts` reads a photo in the browser, `interpret.ts` turns the reading into a design, `model.ts` builds roof, facade, interior and site parts from the plan's scene geometry, and `three-build.ts` merges them into one mesh per part. The floor plan is never changed. Designs are stored per project in `house_designs`, apart from `design_versions`, so a colour change adds no plan version. The optional server reading (`POST /api/house-design/read-image`) needs a configured provider and the user's opt-in.
+
 ## Key rule
 
 smart proposes; deterministic code validates. The browser must not be trusted as the final validator. Server-side authorization is required for every project, version and asset operation.

@@ -11,6 +11,8 @@ export type WallSegment = {
   thickness: number;
   height: number;
   kind: "exterior" | "interior" | "boundary";
+  /** Floor index this piece belongs to. */
+  level: number;
 };
 
 export type RoomFloor = {
@@ -45,10 +47,17 @@ export type DoorLeaf = {
   width: number;
   height: number;
   thickness: number;
+  level: number;
+  /** Direction of the wall the door sits in, and the middle of the opening. */
+  wallAngle: number;
+  centerX: number;
+  centerZ: number;
+  hostKind: WallSegment["kind"];
 };
 
 export type WindowPane = {
   id: string;
+  level: number;
   centerX: number;
   centerZ: number;
   baseY: number;
@@ -72,7 +81,7 @@ export type SceneGeometry = {
 
 const EPS = 0.01;
 /** Rooms open to the sky or street: no full-height walls between them, only a low boundary wall at the plot edge. */
-const OPEN_TYPES: ReadonlySet<RoomType> = new Set<RoomType>(["other", "parking", "balcony"]);
+export const OPEN_TYPES: ReadonlySet<RoomType> = new Set<RoomType>(["other", "parking", "balcony"]);
 const DOOR_SWING = (65 * Math.PI) / 180;
 
 type Rect = { id: string; type: RoomType; x0: number; y0: number; x1: number; y1: number };
@@ -274,7 +283,7 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
     if (to - from < EPS || height < EPS) return;
     const mid = (from + to) / 2;
     const [x, z] = line.axis === "h" ? toWorld(mid, line.at) : toWorld(line.at, mid);
-    walls.push({ id: tagPrefix + id, centerX: x, centerZ: z, baseY: elevation + baseY, length: to - from, angle: line.axis === "h" ? 0 : Math.PI / 2, thickness, height, kind });
+    walls.push({ id: tagPrefix + id, centerX: x, centerZ: z, baseY: elevation + baseY, length: to - from, angle: line.axis === "h" ? 0 : Math.PI / 2, thickness, height, kind, level: levelIndex });
   };
 
   for (const [key, run] of pieces) {
@@ -296,19 +305,20 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
     });
 
     for (const c of cuts) {
-      const hosted = run.some((p) => c.to > p.from + EPS && c.from < p.to - EPS);
-      if (!hosted) continue;
+      const host = run.find((p) => c.to > p.from + EPS && c.from < p.to - EPS);
+      if (!host) continue;
       const width = c.to - c.from;
       if (c.kind === "door") {
         const [hx, hz] = line.axis === "h" ? toWorld(c.from, line.at) : toWorld(line.at, c.from);
         const base = line.axis === "h" ? 0 : Math.PI / 2;
         // Rotate from the wall direction toward the interior side by the swing angle.
         const swing = line.axis === "h" ? c.sign * DOOR_SWING : -c.sign * DOOR_SWING;
-        doors.push({ id: c.id, baseY: elevation, hingeX: hx, hingeZ: hz, angle: base + swing, width, height: c.top, thickness: 0.15 * ft });
+        const [mx, mz] = line.axis === "h" ? toWorld((c.from + c.to) / 2, line.at) : toWorld(line.at, (c.from + c.to) / 2);
+        doors.push({ id: c.id, baseY: elevation, hingeX: hx, hingeZ: hz, angle: base + swing, width, height: c.top, thickness: 0.15 * ft, level: levelIndex, wallAngle: base, centerX: mx, centerZ: mz, hostKind: host.kind });
       } else {
         const mid = (c.from + c.to) / 2;
         const [x, z] = line.axis === "h" ? toWorld(mid, line.at) : toWorld(line.at, mid);
-        windows.push({ id: c.id, centerX: x, centerZ: z, baseY: elevation + c.bottom, angle: line.axis === "h" ? 0 : Math.PI / 2, width, height: c.top - c.bottom });
+        windows.push({ id: c.id, level: levelIndex, centerX: x, centerZ: z, baseY: elevation + c.bottom, angle: line.axis === "h" ? 0 : Math.PI / 2, width, height: c.top - c.bottom });
       }
     }
   }
@@ -316,7 +326,8 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
   return { walls, floors, openings, doors, windows };
 }
 
-export type CameraView = "perspective" | "isometric" | "top" | "front" | "side";
+/** The street is at the plan's y = 0, which is world -Z: `front` looks at the street side, `street` at its corner. */
+export type CameraView = "perspective" | "isometric" | "top" | "front" | "side" | "back" | "left" | "right" | "street";
 
 export type CameraFraming = {
   distance: number;
@@ -364,6 +375,14 @@ export function computeCameraFraming(geometry: SceneGeometry, fovDeg = 45, margi
   const fovRad = (fovDeg * Math.PI) / 180;
   const distance = Math.max(14, ((verticalExtent / 2) / Math.tan(fovRad / 2)) * margin);
 
+  // Elevation views stand back from the near face of the building, not from its centre, and fit a landscape frame.
+  const tanV = Math.tan(fovRad / 2), tanH = tanV * 1.5;
+  const fitted = (near: number, across: number) => near + Math.max(across / 2 / tanH, bHeight / 2 / tanV) * 1.18;
+  const frontDistance = fitted(bDepth / 2, bWidth);
+  const sideDistance = fitted(bWidth / 2, bDepth);
+  const streetDistance = Math.max(14, (Math.hypot(bWidth, bDepth) / 2 / tanH) * 1.62);
+  const eyeHeight = Math.max(bHeight * 0.1, 2);
+
   return {
     distance,
     targetX,
@@ -375,8 +394,13 @@ export function computeCameraFraming(geometry: SceneGeometry, fovDeg = 45, margi
       perspective: [targetX + distance * 0.58, targetY + distance * 0.46, targetZ + distance * 0.58],
       isometric: [targetX + distance * 0.66, targetY + distance * 0.56, targetZ + distance * 0.66],
       top: [targetX + 0.001, targetY + distance * 0.95, targetZ + 0.001],
-      front: [targetX, targetY + distance * 0.28, targetZ + distance * 0.88],
+      front: [targetX, targetY + eyeHeight, targetZ - frontDistance],
       side: [targetX + distance * 0.88, targetY + distance * 0.28, targetZ],
+      back: [targetX, targetY + eyeHeight, targetZ + frontDistance],
+      // Left and right as seen by someone standing in the street, facing the house.
+      left: [targetX + sideDistance, targetY + eyeHeight, targetZ],
+      right: [targetX - sideDistance, targetY + eyeHeight, targetZ],
+      street: [targetX + streetDistance * 0.56, targetY + streetDistance * 0.07, targetZ - streetDistance * 0.82],
     },
   };
 }

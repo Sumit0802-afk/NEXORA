@@ -1,4 +1,6 @@
 import type { FloorPlan } from "@houseplan/design-schema";
+import type { DeepReading } from "@/lib/house-design/interpret";
+import type { HouseDesignDocument } from "@/lib/house-design/schema";
 
 // Local development talks to the API on :8000. On any other host (the deployed site) the browser calls this site's own
 // /api, which Next forwards to the API (API_PROXY_TARGET in next.config.mjs), keeping the login cookie first-party.
@@ -83,6 +85,20 @@ export function createProject(payload: { name: string; units: "ft" | "m"; plotWi
 
 export function saveDesign(id: string, design: FloorPlan): Promise<{ projectId: string; version: number; status: string }> {
   return request(`/projects/${id}/design`, { method: "PUT", body: JSON.stringify(design) });
+}
+
+/** An empty object until the project has a house design. */
+export function getHouseDesign(id: string): Promise<Partial<HouseDesignDocument>> {
+  return request<Partial<HouseDesignDocument>>(`/projects/${id}/house-design`);
+}
+
+export function saveHouseDesign(id: string, document: HouseDesignDocument): Promise<{ status: string }> {
+  return request(`/projects/${id}/house-design`, { method: "PUT", body: JSON.stringify(document) });
+}
+
+/** Optional finer reading of a reference photo; `image` is a downscaled data URL. */
+export function readHouseImage(image: string): Promise<DeepReading> {
+  return request<DeepReading>("/house-design/read-image", { method: "POST", body: JSON.stringify({ image }) });
 }
 
 export function renameProject(id: string, name: string): Promise<ProjectSummary> {

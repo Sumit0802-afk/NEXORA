@@ -80,6 +80,7 @@ class Project(Base):
     versions: Mapped[list["DesignVersion"]] = relationship(
         back_populates="project", order_by="DesignVersion.version_number", cascade="all, delete-orphan"
     )
+    house_design: Mapped["HouseDesign | None"] = relationship(back_populates="project", cascade="all, delete-orphan", uselist=False)
 
 
 class DesignVersion(Base):
@@ -94,6 +95,18 @@ class DesignVersion(Base):
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
     project: Mapped["Project"] = relationship(back_populates="versions")
+
+
+class HouseDesign(Base):
+    """The look chosen for a project's house. Separate from DesignVersion: a colour change is not a new floor plan."""
+
+    __tablename__ = "house_designs"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    document: Mapped[dict] = mapped_column(JSONType(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+    project: Mapped["Project"] = relationship(back_populates="house_design")
 
 
 class LibraryFavorite(Base):
