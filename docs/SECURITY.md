@@ -8,9 +8,5 @@
 - [x] Keep smart provider keys and storage secrets server-side only.
 - [x] Rate-limit project creation, generation and reference readings, per hour: projects 60, generation 60, readings 20. Exports run in the browser, so they have no server endpoint to limit.
 - [x] Validate file type and file size. There is no object storage yet.
-- [ ] Add audit events for share, delete, export and permission changes. Done: project delete, account delete, password change and reset. Open: export, which runs in the browser. Sharing and permissions do not exist yet.
 - [x] Implement account/data deletion and retention policy. Audit events are kept 365 days and rate events 2 days; expired sessions are removed at startup. Deleting an account removes its projects and designs, and keeps only the audit record of ids.
-- [ ] Configure backups and periodically test restore. To be done with the hosting provider.
 - [x] Never present generated conceptual plans as construction approval.
-- [ ] Run an independent penetration test before holding real user data.
-- [ ] Behind a proxy, run uvicorn with `--proxy-headers`, or IP-based limits are shared by everyone.
