@@ -1,14 +1,14 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Boxes, Check, Columns2, Copy, Download, FolderOpen, History, ImageDown, Layers3, Loader2, Pencil, Save, Trash2, Upload } from "lucide-react";
+import { Boxes, Check, Columns2, Copy, Download, FileText, FolderOpen, History, ImageDown, Layers3, Loader2, Pencil, Save, Trash2, Upload } from "lucide-react";
 import type { FloorPlan } from "@houseplan/design-schema";
 import { useHouseDesign } from "@/lib/house-design/context";
 import { RENDER_SIZES, exportAllVariations, exportFileName, exportGlb, exportObjArchive, exportProjectFile, exportStl, exportVariation, parseProjectFile } from "@/lib/house-design/export";
 import { planFingerprint } from "@/lib/house-design/geometry-engine";
 import type { SceneObject } from "@/lib/house-design/objects";
 import { diffDesigns } from "@/lib/house-design/variations";
-import { triggerDownload } from "@/lib/export-2d";
+import { exportFloorPlanAsPdfFile, exportFloorPlanAsPngFile, exportFloorPlanAsSvgFile, triggerDownload } from "@/lib/export-2d";
 import { MATERIALS, MATERIAL_CATEGORIES, type MaterialCategory } from "@/lib/house-design/materials";
 import { MAX_VARIATIONS, type Finish, type HouseDesign } from "@/lib/house-design/schema";
 import { PAINTABLE_PARTS, finishAt } from "@/lib/house-design/surfaces";
@@ -242,6 +242,8 @@ export function ExportPanel({ scene, projectName, design, plan, objects }: { sce
   };
   const options = { includeFurniture: furniture, includeRoof: roof, includeSite: site, projectName };
   const baseName = exportFileName(projectName, "house");
+  const plan2d = { includeLabels: true, includeDimensions: true, includeTitleBlock: true, includeNorthArrow: true, projectName, units: plan.units };
+  const floors = plan.levels.map((_, i) => i);
 
   const render = () =>
     run("render", async () => {
@@ -280,7 +282,20 @@ export function ExportPanel({ scene, projectName, design, plan, objects }: { sce
 
   return (
     <div className="hd-panel">
-      <PanelHead eyebrow="Project" title="Export">Renders use the current camera and lighting. Models keep the materials you chose, and every object keeps its name.</PanelHead>
+      <PanelHead eyebrow="Project" title="Export">Download the 2D floor plan or the 3D house. Renders use the current camera and lighting. Models keep the materials you chose, and every object keeps its name.</PanelHead>
+      <section className="hd-group">
+        <h3>2D floor plan</h3>
+        <p className="hd-hint">Your drawn plan with room labels and dimensions. PNG and SVG save one file per floor.</p>
+        <button type="button" className="hd-button" disabled={Boolean(busy)} onClick={() => run("pdf", async () => { await exportFloorPlanAsPdfFile(plan, { ...plan2d, allFloors: true }, exportFileName(projectName, "floor-plan.pdf")); return "Saved the floor plan as PDF."; })}>
+          {icon("pdf", FileText)} PDF <small>all floors</small>
+        </button>
+        <button type="button" className="hd-button" disabled={Boolean(busy)} onClick={() => run("png", async () => { for (const i of floors) await exportFloorPlanAsPngFile(plan, { ...plan2d, levelIndex: i }, exportFileName(projectName, `floor-${i + 1}.png`)); return "Saved the floor plan as PNG."; })}>
+          {icon("png", ImageDown)} PNG <small>image</small>
+        </button>
+        <button type="button" className="hd-button" disabled={Boolean(busy)} onClick={() => run("svg", () => { for (const i of floors) exportFloorPlanAsSvgFile(plan, { ...plan2d, levelIndex: i }, exportFileName(projectName, `floor-${i + 1}.svg`)); return "Saved the floor plan as SVG."; })}>
+          {icon("svg", Download)} SVG <small>vector</small>
+        </button>
+      </section>
       <section className="hd-group">
         <h3>High-resolution render</h3>
         <label className="hd-select">
