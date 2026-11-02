@@ -197,14 +197,23 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
     if (picked.roomId) setRoomId(picked.roomId);
   }, []);
 
+  const [applying, setApplying] = useState(false);
   const applyGallery = async (id: string) => {
     const image = referenceFromGallery(id);
-    if (!image || !plan) return;
+    if (!image || !plan || applying) return;
+    setApplying(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    try {
     const others = doc.references.filter((r) => r.elevation !== "front" && doc.images[r.imageId]).map((r) => ({ elevation: r.elevation, image: doc.images[r.imageId] }));
     const result = await generateFromReferences([{ elevation: "front", image }, ...others], { plan });
     house.applyGallery(result, image, baseRecord(plan, result.design, [image.id, ...others.map((o) => o.image.id)]));
     setGallery(false);
     showToast(`Applied ${image.name}. Your floor plan is unchanged.`);
+    } catch {
+      showToast("That design could not be applied. Please try again.");
+    } finally {
+      setApplying(false);
+    }
   };
 
   const checkMatch = async () => {
@@ -261,8 +270,6 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
     : undefined;
 
   const levels = plan?.levels.length ?? 1;
-  const frontImage = doc.references.find((r) => r.elevation === "front");
-  const appliedGallery = frontImage ? doc.images[frontImage.imageId]?.galleryId : undefined;
 
   const selectedSurface: SelectedSurface | null = useMemo(() => {
     if (!selectedObject || !selection || !plan) return null;
@@ -283,7 +290,7 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
     if (!plan) return null;
     switch (section) {
       case "reference":
-        return <ReferencePanel plan={plan} projectId={params.projectId} onOpenGallery={() => setGallery(true)} onGo={openSection} onToast={showToast} onCheckMatch={checkMatch} />;
+        return <ReferencePanel plan={plan} projectId={params.projectId} onOpenGallery={() => setGallery(true)} applying={applying} onApplyDesign={(id) => void applyGallery(id)} onGo={openSection} onToast={showToast} onCheckMatch={checkMatch} />;
       case "objects":
         return (
           <ObjectsPanel
@@ -482,7 +489,7 @@ export default function HouseDesignStudio({ params }: { params: { projectId: str
             </div>
             <p className="hd-orbit-hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click any object to edit it</p>
 
-            {gallery && <GalleryOverlay appliedId={appliedGallery} onApply={(id) => void applyGallery(id)} onClose={() => setGallery(false)} />}
+            {gallery && <GalleryOverlay applying={applying} onApply={(id) => void applyGallery(id)} onClose={() => setGallery(false)} />}
           </section>
 
           <aside className="hd-inspector" aria-label="Customization inspector">

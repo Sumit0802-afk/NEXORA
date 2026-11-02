@@ -311,8 +311,12 @@ export type BaseRecord = {
   objects: { id: string; kind: string; elevation: Elevation | null }[];
 };
 
+/** The user's place in the design gallery. */
+export type GalleryState = { selectedId: string | null; favorites: string[]; recent: string[] };
+
 export type HouseDesignDocument = {
   version: 2;
+  gallery: GalleryState;
   /** Null until a design has been generated or applied; the model then shows the plain 3D house. */
   design: HouseDesign | null;
   /** The result of the last generation, so Reset can return to it. */
@@ -329,6 +333,7 @@ export type HouseDesignDocument = {
 
 export const EMPTY_DOCUMENT: HouseDesignDocument = {
   version: 2,
+  gallery: { selectedId: null, favorites: [], recent: [] },
   design: null,
   generated: null,
   images: {},
@@ -363,6 +368,7 @@ export function normalizeDocument(saved: unknown): HouseDesignDocument {
   const references = doc.references ?? adoptLegacy(doc.reference, images);
   return {
     version: 2,
+    gallery: { selectedId: doc.gallery?.selectedId ?? null, favorites: doc.gallery?.favorites ?? [], recent: doc.gallery?.recent ?? [] },
     design: doc.design ? normalizeDesign(doc.design) : null,
     generated: doc.generated ? normalizeDesign(doc.generated) : null,
     images,

@@ -15,6 +15,7 @@ import {
   type DesignRevision,
   type DesignVariation,
   type Elevation,
+  type GalleryState,
   type HouseDesign,
   type HouseDesignDocument,
   type ReadingSummary,
@@ -49,6 +50,8 @@ type Value = {
   removeReference: (elevation: Elevation) => void;
   applyGallery: (result: GeneratedResult, image: ReferenceImage, base: BaseRecord | null) => void;
   saveNow: () => Promise<boolean>;
+  /** Selection, favorites and recently viewed. Not part of undo, since no design changes. */
+  updateGallery: (fn: (gallery: GalleryState) => GalleryState) => void;
   addVariation: (name: string, thumbnail: string | null, planFingerprint: string | null) => string | null;
   overwriteVariation: (id: string, thumbnail: string | null, planFingerprint: string | null) => void;
   openVariation: (id: string) => void;
@@ -238,6 +241,7 @@ export function HouseDesignProvider({ projectId, children }: { projectId: string
   );
 
   const saveNow = useCallback(() => persist(docRef.current), [persist]);
+  const updateGallery = useCallback<Value["updateGallery"]>((fn) => change((d) => ({ ...d, gallery: fn(d.gallery) })), [change]);
 
   const snapshot = (d: HouseDesignDocument) => ({ design: cloneDesign(d.design!), references: d.references, reading: d.reading, parameters: d.parameters });
 
@@ -328,10 +332,10 @@ export function HouseDesignProvider({ projectId, children }: { projectId: string
     () => ({
       ready, loadError, design: doc.design, document: doc, saveState, saveError,
       canUndo: history.past.length > 0, canRedo: history.future.length > 0,
-      update, undo, redo, job, runGeneration, placeReference, removeReference, applyGallery, saveNow,
+      update, undo, redo, job, runGeneration, placeReference, removeReference, applyGallery, saveNow, updateGallery,
       addVariation, overwriteVariation, openVariation, renameVariation, duplicateVariation, deleteVariation, restoreRevision, restoreDocument,
     }),
-    [ready, loadError, doc, saveState, saveError, history, update, undo, redo, job, runGeneration, placeReference, removeReference, applyGallery, saveNow, addVariation, overwriteVariation, openVariation, renameVariation, duplicateVariation, deleteVariation, restoreRevision, restoreDocument]
+    [ready, loadError, doc, saveState, saveError, history, update, undo, redo, job, runGeneration, placeReference, removeReference, applyGallery, saveNow, updateGallery, addVariation, overwriteVariation, openVariation, renameVariation, duplicateVariation, deleteVariation, restoreRevision, restoreDocument]
   );
 
   return <HouseDesignContext.Provider value={value}>{children}</HouseDesignContext.Provider>;

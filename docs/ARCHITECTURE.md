@@ -19,6 +19,8 @@
 - **Design engine:** `design-engine.ts` turns the readings into a design and structured parameters. The main view sets the whole design; a rear or side view only changes objects on its side and adds evidence on the roof and style. A value no image supports has a null confidence and a basis of `not-visible` or `style-default`.
 - **Model assembly:** `model.ts` builds named parts, and `three-build.ts` merges them into one mesh for each object's use of a part. Each mesh keeps a signature, so a rebuild only replaces meshes whose shape changed. A finish change touches materials only.
 
+The gallery reads from `catalog.ts`, which builds each design from a category sub-style, a material palette and a layout variant. Its previews are drawn from the same specification on demand, and the selection, favorites and recently viewed list are saved in the document.
+
 Objects have semantic ids (`wall:…`, `window:…`, `door:…`, `balcony:…`, `roof:…`) that stay the same across rebuilds of one plan. Per-object edits live in `design.overrides`, kept apart from the design's general settings, so undo, variations and compare include them.
 
 The floor plan is never changed. Designs are stored per project in `house_designs`, apart from `design_versions`, so a colour change adds no plan version. The document keeps the reference images in one pool, the parameters, a record of the base model, the variations and earlier designs. The 3D model itself is rebuilt from the plan and design on open, and GLB and glTF exports carry the design and object list in their metadata.

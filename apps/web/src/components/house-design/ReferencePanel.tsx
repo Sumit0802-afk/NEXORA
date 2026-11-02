@@ -5,7 +5,9 @@ import { AlertTriangle, Check, ChevronDown, ImageUp, LayoutGrid, Loader2, Refres
 import type { FloorPlan } from "@houseplan/design-schema";
 import { ApiError, getAiStatus, getHouseReadJob, startHouseReadJob } from "@/lib/api";
 import { loadPhoto } from "@/lib/photo-upload";
+import { getCatalogDesign, previewImage } from "@/lib/house-design/catalog";
 import { useHouseDesign } from "@/lib/house-design/context";
+import { galleryMaterials, galleryPalette } from "@/lib/house-design/gallery";
 import { baseRecord, type MatchRow } from "@/lib/house-design/design-engine";
 import { STAGE_LABEL, generateFromReferences, referenceFromUpload, type DeepReader, type GenerationStage, type GenerationView } from "@/lib/house-design/pipeline";
 import { ELEVATIONS, ELEVATION_LABEL, type DesignSection, type Elevation, type ReferenceImage } from "@/lib/house-design/schema";
@@ -77,7 +79,9 @@ function Slot({ elevation, image, disabled, onFile, onRemove }: { elevation: Ele
   );
 }
 
-export function ReferencePanel({ plan, projectId, onOpenGallery, onGo, onToast, onCheckMatch }: {
+export function ReferencePanel({ plan, projectId, onOpenGallery, applying, onApplyDesign, onGo, onToast, onCheckMatch }: {
+  applying: boolean;
+  onApplyDesign: (id: string) => void;
   plan: FloorPlan;
   projectId: string;
   onOpenGallery: () => void;
@@ -94,6 +98,7 @@ export function ReferencePanel({ plan, projectId, onOpenGallery, onGo, onToast, 
   const [match, setMatch] = useState<MatchRow[] | null>(null);
   const [matching, setMatching] = useState(false);
   const isDemo = projectId === "demo";
+  const picked = getCatalogDesign(house.document.gallery.selectedId ?? undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,7 +165,22 @@ export function ReferencePanel({ plan, projectId, onOpenGallery, onGo, onToast, 
       </div>
       <p className="hd-hint">JPEG, PNG or WebP up to 8 MB each. A rear or side view only changes that side of the house.</p>
 
-      <button type="button" className="hd-button" onClick={onOpenGallery} disabled={busy}><LayoutGrid size={15} /> Browse the design gallery</button>
+      <button type="button" className="hd-button" onClick={onOpenGallery} disabled={busy}><LayoutGrid size={15} /> {picked ? "Replace from the gallery" : "Browse the design gallery"}</button>
+
+      {picked && (
+        <section className="hd-picked">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={previewImage(picked)} alt={`Selected design: ${picked.name}`} />
+          <h3>{picked.name}</h3>
+          <small>{picked.categoryName} · {picked.subcategory}</small>
+          <p>{galleryMaterials(picked.design).join(" · ")}</p>
+          <div className="hd-dots" aria-label="Colour palette">{galleryPalette(picked.design).map((c) => <i key={c} style={{ background: c }} title={c} />)}</div>
+          <button type="button" className="hd-button primary" disabled={applying || busy} onClick={() => onApplyDesign(picked.id)}>
+            {applying ? <Loader2 size={15} className="hd-spin" /> : <Check size={15} />} {applying ? "Applying design" : "Apply Design"}
+          </button>
+          <button type="button" className="hd-button" disabled={applying} onClick={() => house.updateGallery((g) => ({ ...g, selectedId: null }))}><Trash2 size={14} /> Remove selection</button>
+        </section>
+      )}
 
       {shownError && <p className="hd-error" role="alert"><AlertTriangle size={14} /> {shownError}</p>}
 

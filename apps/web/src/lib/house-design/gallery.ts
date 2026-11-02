@@ -112,6 +112,3 @@ export function galleryMaterials(design: HouseDesign): string[] {
   return [...new Set([ext.wall, ext.accent, ext.roof.finish, ext.window.frame].map((f) => getMaterial(f.materialId).name))];
 }
 
-export function getGalleryDesign(id: string | undefined): GalleryDesign | undefined {
-  return GALLERY.find((g) => g.id === id);
-}

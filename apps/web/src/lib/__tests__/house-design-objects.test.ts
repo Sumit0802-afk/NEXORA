@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FloorPlan } from "@houseplan/design-schema";
+import { catalog, catalogCategories, getCatalogDesign, previewImage, searchCatalog } from "../house-design/catalog";
 import { baseRecord, composeDesign, matchReport, type ViewReading } from "../house-design/design-engine";
 import { baseGeometry, planFingerprint, roomMeasures } from "../house-design/geometry-engine";
 import type { FacadeAnalysis } from "../house-design/image-analysis";
@@ -456,5 +457,63 @@ describe("stored document", () => {
     const pool = { a: { ...image, id: "a" }, b: { ...image, id: "b" }, c: { ...image, id: "c" } };
     const doc = normalizeDocument({ images: pool, references: [{ elevation: "front", imageId: "a" }], variations: [{ id: "v", name: "V", design: design(), references: [{ elevation: "rear", imageId: "b" }] }] });
     expect(Object.keys(pruneImages(doc).images).sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("design catalog", () => {
+  const all = catalog();
+  const query = { text: "", categoryId: null, subcategory: null, material: null, buildingType: null, sort: "recent" as const };
+
+  it("has at least 500 entries with unique ids and names", () => {
+    expect(all.length).toBeGreaterThanOrEqual(500);
+    expect(new Set(all.map((e) => e.id)).size).toBe(all.length);
+    expect(new Set(all.map((e) => e.name)).size).toBe(all.length);
+  });
+
+  it("makes every entry a different design, not a repeat", () => {
+    expect(new Set(all.map((e) => JSON.stringify(e.design))).size).toBe(all.length);
+  });
+
+  it("gives each entry its own preview", () => {
+    expect(new Set(all.map(previewImage)).size).toBe(all.length);
+  });
+
+  it("has all twenty categories, each with subcategories", () => {
+    const categories = catalogCategories();
+    expect(categories).toHaveLength(20);
+    for (const c of categories) for (const s of c.subcategories) expect(all.some((e) => e.categoryId === c.id && e.subcategory === s)).toBe(true);
+  });
+
+  it("builds a sample of entries into geometry without moving a room", () => {
+    const rooms = JSON.stringify(roomMeasures(baseGeometry(house, design()).geometry));
+    for (const e of all.filter((_, i) => i % 17 === 0)) {
+      const m = modelOf(e.design);
+      expect(m.objects.length).toBeGreaterThan(10);
+      expect(JSON.stringify(roomMeasures(baseGeometry(house, e.design).geometry))).toBe(rooms);
+    }
+  });
+
+  it("searches by name and style, and filters", () => {
+    expect(searchCatalog(all, { ...query, text: "haveli" }).every((e) => e.categoryId === "indian")).toBe(true);
+    expect(searchCatalog(all, { ...query, text: "japanese" }).length).toBeGreaterThan(0);
+    expect(searchCatalog(all, { ...query, categoryId: "coastal", subcategory: "Cliffside" }).every((e) => e.subcategory === "Cliffside")).toBe(true);
+    expect(searchCatalog(all, { ...query, buildingType: "Villa" }).every((e) => e.buildingType === "Villa")).toBe(true);
+    expect(searchCatalog(all, { ...query, text: "zzzz" })).toEqual([]);
+  });
+
+  it("sorts alphabetically", () => {
+    const names = searchCatalog(all, { ...query, sort: "name" }).map((e) => e.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("finds entries by id", () => {
+    expect(getCatalogDesign(all[300].id)).toBe(all[300]);
+    expect(getCatalogDesign("aurora-villa")?.image).toContain("aurora-villa");
+  });
+
+  it("keeps the gallery state through a save", () => {
+    const doc = normalizeDocument({ gallery: { selectedId: "x", favorites: ["a"], recent: ["b"] } });
+    expect(doc.gallery).toEqual({ selectedId: "x", favorites: ["a"], recent: ["b"] });
+    expect(normalizeDocument({}).gallery.selectedId).toBeNull();
   });
 });

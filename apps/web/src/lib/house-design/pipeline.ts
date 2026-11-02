@@ -1,6 +1,6 @@
 import type { FloorPlan } from "@houseplan/design-schema";
 import { composeDesign, type Composition, type ViewReading } from "./design-engine";
-import { getGalleryDesign } from "./gallery";
+import { getCatalogDesign, previewImage } from "./catalog";
 import { MAX_ANALYSIS_SIDE, analyzeFacade, type FacadeAnalysis, type PixelImage } from "./image-analysis";
 import type { DeepReading } from "./interpret";
 import type { Elevation, ReferenceImage } from "./schema";
@@ -54,8 +54,8 @@ export async function referenceFromUpload(url: string, name: string): Promise<Re
 }
 
 export function referenceFromGallery(id: string): ReferenceImage | null {
-  const entry = getGalleryDesign(id);
-  return entry ? { id: `gallery-${id}`, kind: "gallery", name: entry.name, src: entry.image, width: 1600, height: 900, galleryId: id } : null;
+  const entry = getCatalogDesign(id);
+  return entry ? { id: `gallery-${id}`, kind: "gallery", name: entry.name, src: previewImage(entry), width: 1600, height: 900, galleryId: id } : null;
 }
 
 /** Reads one image off the main thread where the browser allows it. */
@@ -103,7 +103,7 @@ export async function generateFromReferences(
   await nextFrame();
 
   // A gallery design is already a complete specification, so nothing has to be inferred from its picture.
-  const gallery = views.map((v) => ({ view: v, entry: getGalleryDesign(v.image.galleryId) })).find((g) => g.entry);
+  const gallery = views.map((v) => ({ view: v, entry: getCatalogDesign(v.image.galleryId) })).find((g) => g.entry);
   const photos = views.filter((v) => !v.image.galleryId);
 
   onStage?.("reading");
