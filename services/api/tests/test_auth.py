@@ -47,7 +47,6 @@ def client(monkeypatch):
     monkeypatch.setattr(auth_routes, "OTP_RESEND_SECONDS", 0)
 
     app.dependency_overrides[get_db] = _db
-    auth_routes._fails.clear()
     _state["sent"] = sent
     c = TestClient(app)
     c.session_factory = Session  # type: ignore[attr-defined]

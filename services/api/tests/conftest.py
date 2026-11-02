@@ -18,12 +18,28 @@ def _signed_in(request):
     import uuid
 
     from app.api.deps import get_current_user
-    from app.db.models import User
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.db.models import Base, User
+    from app.db.session import get_db
     from app.main import app
 
+    # Limits count in the database, so stateless routes need one too. Tests with their own replace this override.
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+
+    def override():
+        with Session() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override
     app.dependency_overrides[get_current_user] = lambda: User(id=uuid.uuid4(), email="t@example.com", password_hash="x")
     yield
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture(autouse=True)

@@ -110,6 +110,28 @@ class HouseDesign(Base):
     project: Mapped["Project"] = relationship(back_populates="house_design")
 
 
+class RateEvent(Base):
+    """One counted action, so limits hold across restarts and workers."""
+
+    __tablename__ = "rate_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_naive, index=True)
+
+
+class AuditEvent(Base):
+    """Who did what. Plain ids, not foreign keys: the record must outlive a deleted account."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    target: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_naive, index=True)
+
+
 class HouseDesignJob(Base):
     """A reference reading running in the background. Images are never stored; only the result is."""
 

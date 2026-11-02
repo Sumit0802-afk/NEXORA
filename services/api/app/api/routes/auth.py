@@ -1,17 +1,16 @@
 import hmac
 import re
 import secrets
-import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.api.deps import SESSION_COOKIE, SESSION_DAYS, check_origin, get_current_user
 from app.core.config import settings
-from app.core import mailer
+from app.core import limits, mailer
 from app.core.security import (
     DUMMY_HASH, hash_otp, hash_password, hash_token, new_otp, new_session_token, verify_password,
 )
@@ -23,7 +22,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MAX_FAILS, _WINDOW = 5, 15 * 60
-_fails: dict[str, list[float]] = {}
 
 
 NO_ACCOUNT = "No account found with this email. Create an account first."
@@ -88,11 +86,8 @@ def _consume_otp(db: Session, user: User | None, code: str, purpose: str) -> Use
     return user
 
 
-def _throttled(key: str) -> bool:
-    now = time.time()
-    recent = [t for t in _fails.get(key, []) if now - t < _WINDOW]
-    _fails[key] = recent
-    return len(recent) >= _MAX_FAILS
+def _throttled(db: Session, key: str) -> bool:
+    return limits.over(db, key, _MAX_FAILS, _WINDOW)
 
 
 def _clean_email(v: str) -> str:
@@ -238,9 +233,9 @@ class ResetPayload(BaseModel):
 def forgot_password(payload: EmailOnly, request: Request, db: Session = Depends(get_db)) -> dict:
     check_origin(request)
     key = f"forgot|{request.client.host if request.client else '?'}"
-    if _throttled(key):
+    if _throttled(db, key):
         raise HTTPException(status_code=429, detail="Too many requests. Try again in a few minutes.")
-    _fails.setdefault(key, []).append(time.time())
+    limits.record(db, key)
     user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
     # Same answer whether or not the address has an account, so this cannot be used to probe for accounts.
     if user and user.password_hash:
@@ -258,8 +253,9 @@ def reset_password(payload: ResetPayload, request: Request, db: Session = Depend
         user.email_verified_at = datetime.now(timezone.utc)  # the code reached their inbox, so the address is theirs
     # Anyone holding the old password (or a stolen session) is signed out everywhere.
     db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+    limits.audit(db, "password.reset", user.id)
     db.commit()
-    _fails.pop(f"{request.client.host if request.client else '?'}|{user.email}", None)
+    limits.clear(db, f"{request.client.host if request.client else '?'}|{user.email}")
     return {"status": "password_updated"}
 
 
@@ -272,18 +268,18 @@ class LoginPending(BaseModel):
 def login(payload: Credentials, request: Request, db: Session = Depends(get_db)) -> LoginPending:
     check_origin(request)
     key = f"{request.client.host if request.client else '?'}|{payload.email}"
-    if _throttled(key):
+    if _throttled(db, key):
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in a few minutes.")
     user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
     ok = verify_password(payload.password, user.password_hash if user and user.password_hash else DUMMY_HASH)
     if not (user and user.password_hash):
         # Sign-in is only for accounts that were created first; point people to Create account.
-        _fails.setdefault(key, []).append(time.time())
+        limits.record(db, key)
         raise HTTPException(status_code=404, detail=NO_ACCOUNT)
     if not ok:
-        _fails.setdefault(key, []).append(time.time())
+        limits.record(db, key)
         raise HTTPException(status_code=401, detail="Incorrect email or password")
-    _fails.pop(key, None)
+    limits.clear(db, key)
     if not user.email_verified_at:
         _issue_otp(db, user)  # a code sent a moment ago is simply reused
         raise HTTPException(status_code=403, detail="email_not_verified")
@@ -296,17 +292,17 @@ def login(payload: Credentials, request: Request, db: Session = Depends(get_db))
 def login_verify(payload: VerifyPayload, request: Request, response: Response, db: Session = Depends(get_db)) -> UserOut:
     check_origin(request)
     key = f"loginotp|{request.client.host if request.client else '?'}|{payload.email}"
-    if _throttled(key):
+    if _throttled(db, key):
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in a few minutes.")
     user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
     try:
         user = _consume_otp(db, user, payload.code, "login")
     except HTTPException:
-        _fails.setdefault(key, []).append(time.time())
+        limits.record(db, key)
         raise
     if not user.email_verified_at:
         raise HTTPException(status_code=403, detail="email_not_verified")
-    _fails.pop(key, None)
+    limits.clear(db, key)
     _start_session(response, db, user)  # commits, which also removes the used code
     return _out(user)
 
@@ -365,12 +361,13 @@ def _current_token_hash(request: Request) -> str | None:
 
 def _check_current_password(user: User, password: str, request: Request) -> None:
     key = f"pw|{user.id}"
-    if _throttled(key):
+    db = object_session(user)
+    if _throttled(db, key):
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in a few minutes.")
     if not verify_password(password, user.password_hash):
-        _fails.setdefault(key, []).append(time.time())
+        limits.record(db, key)
         raise HTTPException(status_code=400, detail="That password is incorrect.")
-    _fails.pop(key, None)
+    limits.clear(db, key)
 
 
 @router.patch("/me")
@@ -394,6 +391,7 @@ def change_password(payload: PasswordChange, request: Request, db: Session = Dep
     if keep:
         stmt = stmt.where(AuthSession.token_hash != keep)
     db.execute(stmt)
+    limits.audit(db, "password.change", user.id)
     db.commit()
     return {"status": "password_updated"}
 
@@ -415,6 +413,7 @@ def delete_account(payload: PasswordConfirm, request: Request, response: Respons
         db.delete(project)  # ORM cascade also removes its saved design versions
     db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
     db.execute(delete(EmailOtp).where(EmailOtp.user_id == user.id))
+    limits.audit(db, "account.delete", user.id)
     db.delete(user)
     db.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")

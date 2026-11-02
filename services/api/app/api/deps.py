@@ -25,8 +25,11 @@ def _origin_ok(origin: str) -> bool:
 
 def check_origin(request: Request) -> None:
     """Cookie sessions: refuse state-changing requests that come from a foreign origin (CSRF)."""
+    if request.method not in _UNSAFE:
+        return
     origin = request.headers.get("origin")
-    if request.method in _UNSAFE and origin and not _origin_ok(origin):
+    # Browsers send Sec-Fetch-Site even where they leave Origin out.
+    if (origin and not _origin_ok(origin)) or (not origin and request.headers.get("sec-fetch-site") == "cross-site"):
         raise HTTPException(status_code=403, detail="Request origin not allowed")
 
 

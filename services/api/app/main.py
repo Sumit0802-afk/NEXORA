@@ -1,9 +1,10 @@
 import os
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.deps import get_current_user
+from app.core import limits
 from app.core.config import settings
 from app.api.routes import auth, generation, health, house_design, library, projects, support, validation
 from app.db.models import Base
@@ -27,12 +28,24 @@ def on_startup() -> None:
     ensure_auth_columns(engine)
     with SessionLocal() as db:
         ensure_demo_user(db)
+        limits.purge(db)
     if settings.library_autobuild:
         if os.getenv("VERCEL"):
             # Serverless: a background thread is frozen once the response is sent, so load the bundled catalogue now.
             catalog.build(settings.library_size)
         else:
             catalog.build_in_background(settings.library_size)
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    if settings.app_env != "development":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 
 origins = [origin.strip() for origin in settings.api_cors_origins.split(",") if origin.strip()]
 app.add_middleware(

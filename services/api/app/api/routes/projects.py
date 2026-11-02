@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import limits
 from app.api.deps import get_current_user
 from app.db.models import DesignVersion, HouseDesign, Project, User
 from app.db.session import get_db
@@ -14,6 +15,9 @@ from app.domain.geometry import validate_floor_plan
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 _Auth = Depends(get_current_user)
+
+
+PROJECTS_PER_HOUR = 60
 
 
 class ProjectCreate(BaseModel):
@@ -112,6 +116,7 @@ def _summarize(db: Session, project: Project) -> ProjectSummary:
 
 @router.post("", status_code=201)
 def create_project(payload: ProjectCreate, db: Session = Depends(get_db), user: User = _Auth) -> ProjectSummary:
+    limits.spend(db, f"project|{user.id}", PROJECTS_PER_HOUR)
     project = Project(owner_id=user.id, name=payload.name, units=payload.units, current_version=1)
     db.add(project)
     db.flush()
@@ -151,6 +156,7 @@ def rename_project(project_id: UUID, payload: ProjectRename, db: Session = Depen
 @router.post("/{project_id}/duplicate", status_code=201)
 def duplicate_project(project_id: UUID, db: Session = Depends(get_db), user: User = _Auth) -> ProjectSummary:
     source = _get_owned_project(db, project_id, user)
+    limits.spend(db, f"project|{user.id}", PROJECTS_PER_HOUR)
     latest = _latest_version(db, source)
 
     copy = Project(owner_id=user.id, name=f"{source.name} (copy)", units=source.units, current_version=1)
@@ -172,6 +178,7 @@ def duplicate_project(project_id: UUID, db: Session = Depends(get_db), user: Use
 @router.delete("/{project_id}", status_code=204)
 def delete_project(project_id: UUID, db: Session = Depends(get_db), user: User = _Auth) -> None:
     project = _get_owned_project(db, project_id, user)
+    limits.audit(db, "project.delete", user.id, str(project.id))
     db.delete(project)
     db.commit()
 

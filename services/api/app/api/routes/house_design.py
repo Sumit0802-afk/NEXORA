@@ -12,6 +12,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core import limits
 from app.api.routes.projects import _get_owned_project
 from app.db.models import HouseDesign, HouseDesignJob, User
 from app.db.session import get_db
@@ -25,6 +26,8 @@ _Auth = Depends(get_current_user)
 MAX_DOCUMENT_BYTES = 12_000_000
 MAX_IMAGE_BYTES = 2_000_000
 JOB_TIMEOUT = timedelta(minutes=10)
+# Each job can reach a paid provider.
+READS_PER_HOUR = 20
 _IMAGE_TYPES = {b"\xff\xd8\xff": "image/jpeg", b"\x89PNG": "image/png"}
 
 
@@ -102,6 +105,7 @@ def start_read_job(project_id: UUID, payload: ReadJobRequest, background: Backgr
     if not ai_enabled():
         raise HTTPException(status_code=503, detail="Detailed image reading is not set up on this server.")
     views = [(view.elevation, *_decode(view.image)) for view in payload.views]
+    limits.spend(db, f"read-job|{user.id}", READS_PER_HOUR)
     db.query(HouseDesignJob).filter(HouseDesignJob.project_id == project.id, HouseDesignJob.status.in_(("completed", "failed"))).delete(synchronize_session=False)
     job = HouseDesignJob(project_id=project.id)
     db.add(job)

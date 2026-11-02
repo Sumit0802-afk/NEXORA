@@ -1,14 +1,22 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
+from app.core import limits
+from app.db.models import User
+from app.db.session import get_db
 from app.domain.ai import AIUnavailable, ai_explain_candidates, ai_read_brief, ai_status
 from app.domain.layout import PlotTooSmall, generate_candidates
 from app.domain.requirements import parse_requirements
 
 router = APIRouter(prefix="/projects", tags=["generation"])
 layouts_router = APIRouter(prefix="/layouts", tags=["generation"])
+
+
+GENERATIONS_PER_HOUR = 60
 
 
 class LayoutRequest(BaseModel):
@@ -74,8 +82,9 @@ def get_ai_status() -> dict:
 
 
 @layouts_router.post("/generate")
-def generate_layouts(payload: LayoutRequest) -> dict:
+def generate_layouts(payload: LayoutRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     """Rule-based layout candidates, validated by the geometry engine. Synchronous: generation takes milliseconds."""
+    limits.spend(db, f"generate|{user.id}", GENERATIONS_PER_HOUR)
     return _generate(payload)
 
 
@@ -88,7 +97,8 @@ class GenerateRequest(BaseModel):
 
 
 @router.post("/{project_id}/generate")
-def start_generation(project_id: str, payload: GenerateRequest) -> dict:
+def start_generation(project_id: str, payload: GenerateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    limits.spend(db, f"generate|{user.id}", GENERATIONS_PER_HOUR)
     result = _generate(LayoutRequest(
         roomList=", ".join(payload.required_rooms), description=payload.prompt,
         plotWidth=payload.plot_width, plotLength=payload.plot_length, units=payload.units,

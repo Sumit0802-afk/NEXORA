@@ -331,6 +331,7 @@ export function ExportPanel({ scene, projectName, design, plan, objects }: { sce
         <input ref={file} className="hd-hidden" type="file" accept="application/json,.json" aria-label="Design file" onChange={(e) => { void restore(e.target.files?.[0]); e.target.value = ""; }} />
       </section>
       {message && <p className={message.ok ? "hd-note ok" : "hd-error"} role="status">{message.text}</p>}
+      <p className="hd-hint">Designs are conceptual visualizations, not construction drawings or approvals. Have a licensed professional review any building work.</p>
     </div>
   );
 }
