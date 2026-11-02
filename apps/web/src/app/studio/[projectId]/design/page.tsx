@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, use } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -111,7 +111,8 @@ const LIGHTS: { id: LightingPreview; label: string; icon: LucideIcon }[] = [
 
 const SAVE_TEXT = { saved: "All changes saved", dirty: "Unsaved changes", saving: "Saving…", error: "Not saved" };
 
-export default function HouseDesignStudio({ params }: { params: { projectId: string } }) {
+export default function HouseDesignStudio({ params: routeParams }: { params: Promise<{ projectId: string }> }) {
+  const params = use(routeParams);
   const { plan, loadError: planError, isDemo, projectName } = usePlanContext();
   const house = useHouseDesign();
   const { design, document: doc } = house;

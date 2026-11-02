@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, use } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -82,7 +82,8 @@ function genId(prefix: string) {
 /* ════════════════════════════════════════════════════════════
    3D PREVIEW PAGE
    ════════════════════════════════════════════════════════════ */
-export default function Preview3DPage({ params }: { params: { projectId: string } }) {
+export default function Preview3DPage({ params: routeParams }: { params: Promise<{ projectId: string }> }) {
+  const params = use(routeParams);
   const { plan, loadError, isDemo, projectName, pushPlan, save, saving } = usePlanContext();
   const { design: houseDesign } = useHouseDesign();
 

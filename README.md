@@ -28,8 +28,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Next.js_14-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js" />
-  <img src="https://img.shields.io/badge/React_18-20232A?style=flat-square&logo=react&logoColor=61DAFB" alt="React" />
+  <img src="https://img.shields.io/badge/Next.js_16-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js" />
+  <img src="https://img.shields.io/badge/React_19-20232A?style=flat-square&logo=react&logoColor=61DAFB" alt="React" />
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Three.js-000000?style=flat-square&logo=threedotjs&logoColor=white" alt="Three.js" />
   <img src="https://img.shields.io/badge/Konva-0D83CD?style=flat-square&logoColor=white" alt="Konva" />
@@ -117,6 +117,12 @@ sequenceDiagram
 
 <table>
   <tr>
+    <td colspan="2" valign="top">
+      <h3>🎨 House design studio</h3>
+      Restyle the 3D house from your own front, rear and side photos or from the design catalog. Your rooms and measurements stay as drawn, photo readings are a best match, and every wall, window, door, balcony and roof section can then be edited on its own.
+    </td>
+  </tr>
+  <tr>
     <td width="50%" valign="top">
       <h3>✏️ 2D editor</h3>
       Rooms, walls, doors and windows that slide along their wall. Snap to a grid, measure, split rooms, undo and redo, add or duplicate floors, and switch room labels on or off.
@@ -197,7 +203,7 @@ const checks = {
 
 | Layer | What | Why |
 | :--- | :--- | :--- |
-| 🖥️ Web | Next.js 14, React 18, TypeScript | Fast pages, typed code |
+| 🖥️ Web | Next.js 16, React 19, TypeScript | Fast pages, typed code |
 | ✏️ 2D | react-konva (Konva) | A smooth, interactive canvas |
 | 🧊 3D | react-three-fiber, three.js | The 3D scene is derived from the plan |
 | ⚙️ API | FastAPI, Pydantic, SQLAlchemy | Layout engine, checks, sign-in |
@@ -339,7 +345,8 @@ flowchart LR
 
 - 🔒 Passwords are hashed with **scrypt**; sessions live on the server.
 - 📧 **Every** sign-in needs a fresh emailed code (10 minutes, one use, locked after 5 wrong tries).
-- 🛑 Writes from other origins are refused, and failed attempts are rate limited.
+- 🛑 Writes from other origins are refused. Failed logins and costly actions are limited through the database, so limits survive restarts.
+- 🧾 Deletions and password changes leave an audit record, with ids only.
 - 📬 Feedback goes server-to-inbox; the destination address never reaches the browser.
 
 More in [`docs/SECURITY.md`](docs/SECURITY.md).
@@ -385,6 +392,7 @@ api:
 - [x] Stairs and terrace checks
 - [x] Terrace designer with editable furniture
 - [x] Email-code sign-in, password reset, account page
+- [x] House design studio: reference photos by side, a searchable design catalog, editing of each wall, window and door, variations, GLB and glTF export
 - [ ] Verified sending domain with SPF, DKIM and DMARC
 - [ ] Architectural sheets that include the terrace plan
 - [ ] More terrace and interior catalogue items

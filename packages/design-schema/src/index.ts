@@ -39,7 +39,7 @@ export const FurnitureItemSchema = z.object({
     depth: z.number(),
     height: z.number(),
   }),
-  material: z.record(z.unknown()).optional(),
+  material: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 
 export const WallSchema = z.object({
@@ -107,14 +107,14 @@ export const FloorPlanSchema = z.object({
     rooms: z.array(RoomSchema),
     walls: z.array(WallSchema),
     openings: z.array(OpeningSchema),
-    furniture: z.array(z.union([FurnitureItemSchema, z.record(z.unknown())])).default([]),
+    furniture: z.array(z.union([FurnitureItemSchema, z.record(z.string(), z.unknown())])).default([]),
     columns: z.array(ColumnSchema).optional(),
     beams: z.array(BeamSchema).optional(),
     foundations: z.array(FoundationFootingSchema).optional()
   })),
   /** Terrace and exterior options chosen in the 3D designer; stored with the plan so they reopen as saved. */
-  terraceConfig: z.record(z.unknown()).optional(),
-  exteriorConfig: z.record(z.unknown()).optional(),
+  terraceConfig: z.record(z.string(), z.unknown()).optional(),
+  exteriorConfig: z.record(z.string(), z.unknown()).optional(),
   metadata: z.object({
     version: z.number().int().positive(),
     status: z.enum(["draft", "generated", "reviewed"]).default("draft")

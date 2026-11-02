@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, use } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -36,7 +36,8 @@ import {
 import { generateSingleFloorSvg, exportFloorPlanAsPdfFile } from "@/lib/export-2d";
 import { triggerDownload } from "@/lib/export-2d";
 
-export default function ProfessionalDrawingSheetPage({ params }: { params: { projectId: string } }) {
+export default function ProfessionalDrawingSheetPage({ params: routeParams }: { params: Promise<{ projectId: string }> }) {
+  const params = use(routeParams);
   const { plan, loadError, projectName, isDemo } = usePlanContext();
 
   const [activeSheet, setActiveSheet] = useState<"plans" | "elevations" | "sections" | "schedules">("plans");

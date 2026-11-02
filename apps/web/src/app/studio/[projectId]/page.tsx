@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -127,7 +127,8 @@ function roomBoundsOf(polygon: [number, number][]) {
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
-export default function StudioPage({ params }: { params: { projectId: string } }) {
+export default function StudioPage({ params: routeParams }: { params: Promise<{ projectId: string }> }) {
+  const params = use(routeParams);
   const { isDemo, plan, loadError, saving, status, setStatus, canUndo, canRedo, undo, redo, pushPlan, save } =
     usePlanContext();
   const router = useRouter();
