@@ -411,25 +411,6 @@ export default function Preview3DPage({ params: routeParams }: { params: Promise
           </Link>
           <button
             className="button"
-            onClick={() => setShowTerraceModal(true)}
-            title="Design the rooftop terrace, exterior facade, railings, and outdoor furniture"
-            style={{ background: "var(--c-FFF8EC, #FFF8EC)", borderColor: "var(--c-FCD68A, #FCD68A)", color: "var(--c-92400E, #92400E)", fontWeight: 700 }}
-          >
-            🏛️ Terrace & Exterior
-          </button>
-          <button
-            className="button"
-            onClick={() => setShowInteriorModal(true)}
-            title="Open Realistic Interior Designer for room furniture and styling"
-            style={{ background: "var(--c-F5F3FF, #F5F3FF)", borderColor: "var(--c-DDD6FE, #DDD6FE)", color: "var(--c-5B21B6, #5B21B6)", fontWeight: 700 }}
-          >
-            <Paintbrush size={14} style={{ marginRight: 5, color: "var(--c-7C3AED, #7C3AED)" }} />Interior Designer
-          </button>
-          <button className="button" onClick={() => setShowDesignWizard(true)} title="Choose from 8 architectural designs and structural terrace layouts">
-            <Sparkles size={14} style={{ marginRight: 5, color: "var(--c-7B68EE, #7B68EE)" }} />House Designs
-          </button>
-          <button
-            className="button"
             onClick={() => setShowExportModal(true)}
             title="Export 3D Model (GLB, OBJ) and 2D Architectural Plans"
           >
