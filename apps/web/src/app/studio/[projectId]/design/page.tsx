@@ -113,7 +113,7 @@ const SAVE_TEXT = { saved: "All changes saved", dirty: "Unsaved changes", saving
 
 export default function HouseDesignStudio({ params: routeParams }: { params: Promise<{ projectId: string }> }) {
   const params = use(routeParams);
-  const { plan, loadError: planError, isDemo, projectName } = usePlanContext();
+  const { plan, loadError: planError, isDemo, projectName, pushPlan } = usePlanContext();
   const house = useHouseDesign();
   const { design, document: doc } = house;
 
@@ -322,7 +322,7 @@ export default function HouseDesignStudio({ params: routeParams }: { params: Pro
       case "interior":
         return <InteriorPanel design={working} plan={plan} edit={edit} roomId={roomId} onRoom={setRoomId} onLookInside={lookInside} />;
       case "environment":
-        return <EnvironmentPanel design={working} edit={edit} />;
+        return <EnvironmentPanel design={working} edit={edit} plan={plan} onPlan={pushPlan} />;
       case "materials":
         return <MaterialsPanel design={working} plan={plan} edit={edit} target={target} onTarget={setTarget} selected={selectedSurface} />;
       case "variations":

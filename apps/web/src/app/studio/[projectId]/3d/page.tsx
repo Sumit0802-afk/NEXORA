@@ -40,12 +40,14 @@ import {
   Building2,
   FileText,
   MessageSquare,
+  Fence,
 } from "lucide-react";
 import { HouseScene, type HouseSceneHandle, type SceneView, ARCH_STYLES, type ArchStyleId } from "@/components/viewer/HouseScene";
 import { WalkthroughHUD } from "@/components/viewer/WalkthroughHUD";
 import { DesignWizardModal } from "@/components/plan/DesignWizardModal";
 import { InteriorDesignerModal } from "@/components/interior/InteriorDesignerModal";
 import { TerraceDesignerModal } from "@/components/exterior/TerraceDesignerModal";
+import { BoundaryModal } from "@/components/exterior/BoundaryModal";
 import { ExportModal } from "@/components/export/ExportModal";
 import { StructuralPlanningModal } from "@/components/structural/StructuralPlanningModal";
 import { FeedbackModal } from "@/components/feedback/FeedbackModal";
@@ -85,6 +87,7 @@ function genId(prefix: string) {
 export default function Preview3DPage({ params: routeParams }: { params: Promise<{ projectId: string }> }) {
   const params = use(routeParams);
   const { plan, loadError, isDemo, projectName, pushPlan, save, saving } = usePlanContext();
+  const [showBoundary, setShowBoundary] = useState(false);
   const { design: houseDesign } = useHouseDesign();
 
   // ── 3D viewport state ──
@@ -142,8 +145,12 @@ export default function Preview3DPage({ params: routeParams }: { params: Promise
     if (!plan || restoredConfigRef.current) return;
     restoredConfigRef.current = true;
     if (plan.terraceConfig) setTerraceConfig({ ...DEFAULT_TERRACE_CONFIG, ...(plan.terraceConfig as Partial<TerraceConfig>) });
-    if (plan.exteriorConfig) setExteriorConfig({ ...DEFAULT_EXTERIOR_CONFIG, ...(plan.exteriorConfig as Partial<ExteriorConfig>) });
   }, [plan]);
+  // Exterior options follow the plan, so a change from the boundary dialog, undo or another page is never overwritten.
+  const savedExterior = plan?.exteriorConfig;
+  useEffect(() => {
+    if (savedExterior) setExteriorConfig({ ...DEFAULT_EXTERIOR_CONFIG, ...(savedExterior as Partial<ExteriorConfig>) });
+  }, [savedExterior]);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showStructuralModal, setShowStructuralModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -512,6 +519,13 @@ export default function Preview3DPage({ params: routeParams }: { params: Promise
 
               {/* ── Floating Toolbar ── */}
               <div className="studio-floating-toolbar" role="toolbar" aria-label="3D Studio Controls">
+                <div className="studio-toolbar-cluster">
+                  <button className="studio-tool-btn" onClick={() => setShowBoundary(true)} title="Boundary wall, gates and pillars around the plot">
+                    <Fence size={13} />
+                    <span>Boundary</span>
+                  </button>
+                </div>
+                <div className="studio-toolbar-divider" />
 
                 {/* TERRACE & EXTERIOR DESIGNER */}
                 <div className="studio-toolbar-cluster">
@@ -1269,6 +1283,8 @@ export default function Preview3DPage({ params: routeParams }: { params: Promise
           onViewTerrace={() => { sceneRef.current?.viewTerrace?.(); setShowTerraceModal(false); showToast("Camera moved to rooftop terrace"); }}
         />
       )}
+
+      {showBoundary && plan && <BoundaryModal plan={plan} onChange={pushPlan} onClose={() => setShowBoundary(false)} />}
 
       {plan && (
         <ExportModal

@@ -250,6 +250,8 @@ describe("buildSceneGeometry — wall network", () => {
         rect("garden", "other", 10, 0, 30, 18),
         rect("bed", "bedroom", 0, 18, 30, 30),
       ])],
+      // The plot's own boundary wall (lib/boundary.ts) replaces these pieces when it is on.
+      exteriorConfig: { hasBoundaryWall: false },
     });
     const geometry = buildSceneGeometry(plan);
     const street = geometry.walls.filter((w) => w.angle === 0 && Math.abs(w.centerZ - (0 - 20)) < 0.01);

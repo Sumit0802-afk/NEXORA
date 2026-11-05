@@ -43,11 +43,13 @@ import {
   Undo2,
   WandSparkles,
   X,
+  Fence,
 } from "lucide-react";
 import type { FloorPlanMode, Selection } from "@/components/editor/FloorPlanCanvas";
 import { DesignWizardModal } from "@/components/plan/DesignWizardModal";
 import { InteriorDesignerModal } from "@/components/interior/InteriorDesignerModal";
 import { ExportModal } from "@/components/export/ExportModal";
+import { BoundaryModal } from "@/components/exterior/BoundaryModal";
 import { StructuralPlanningModal } from "@/components/structural/StructuralPlanningModal";
 import { FeedbackModal } from "@/components/feedback/FeedbackModal";
 import { VersionModal } from "@/components/common/VersionModal";
@@ -131,6 +133,7 @@ export default function StudioPage({ params: routeParams }: { params: Promise<{ 
   const params = use(routeParams);
   const { isDemo, plan, loadError, saving, status, setStatus, canUndo, canRedo, undo, redo, pushPlan, save } =
     usePlanContext();
+  const [showBoundary, setShowBoundary] = useState(false);
   const router = useRouter();
 
   const [mode, setMode] = useState<FloorPlanMode>("select");
@@ -1018,6 +1021,9 @@ export default function StudioPage({ params: routeParams }: { params: Promise<{ 
           <button className="button" onClick={() => setShowVersionModal(true)} title="Save or restore named versions">
             <History size={14} /> History ({savedVersions.length})
           </button>
+          <button className="button" onClick={() => setShowBoundary(true)} title="Boundary wall, gates and pillars around the plot">
+            <Fence size={14} /> Boundary wall
+          </button>
           <button className="button" onClick={() => setShowExportModal(true)} title="Export 2D Floor Plan (PNG, PDF, SVG) and 3D Models (GLB, OBJ)">
             <Download size={14} /> Export
           </button>
@@ -1706,6 +1712,8 @@ export default function StudioPage({ params: routeParams }: { params: Promise<{ 
         canRestoreOriginal={Boolean(originalPlanRef.current)}
         direct3dUrl={`/studio/${params.projectId}/3d`}
       />
+
+      {showBoundary && plan && <BoundaryModal plan={plan} onChange={pushPlan} onClose={() => setShowBoundary(false)} />}
 
       {/* Interior Designer Modal */}
       <InteriorDesignerModal

@@ -1,6 +1,7 @@
 import type { FloorPlan } from "@houseplan/design-schema";
 import { composeDesign, type Composition, type ViewReading } from "./design-engine";
 import { getCatalogDesign, previewImage } from "./catalog";
+import { cachedPreview } from "./thumbnails";
 import { MAX_ANALYSIS_SIDE, analyzeFacade, type FacadeAnalysis, type PixelImage } from "./image-analysis";
 import type { DeepReading } from "./interpret";
 import type { Elevation, ReferenceImage } from "./schema";
@@ -55,7 +56,7 @@ export async function referenceFromUpload(url: string, name: string): Promise<Re
 
 export function referenceFromGallery(id: string): ReferenceImage | null {
   const entry = getCatalogDesign(id);
-  return entry ? { id: `gallery-${id}`, kind: "gallery", name: entry.name, src: previewImage(entry), width: 1600, height: 900, galleryId: id } : null;
+  return entry ? { id: `gallery-${id}`, kind: "gallery", name: entry.name, src: cachedPreview(id) ?? previewImage(entry), width: 1600, height: 900, galleryId: id } : null;
 }
 
 /** Reads one image off the main thread where the browser allows it. */

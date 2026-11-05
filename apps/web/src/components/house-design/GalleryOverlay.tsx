@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Heart, Loader2, Search, X } from "lucide-react";
 import { BUILDING_TYPES, catalog, catalogCategories, previewImage, searchCatalog, type CatalogDesign } from "@/lib/house-design/catalog";
 import { useHouseDesign } from "@/lib/house-design/context";
+import { cachedPreview, renderPreview } from "@/lib/house-design/thumbnails";
 import { galleryMaterials, galleryPalette } from "@/lib/house-design/gallery";
 import { MATERIAL_CATEGORIES } from "@/lib/house-design/materials";
 
@@ -12,13 +13,37 @@ const MAX_RECENT = 24;
 
 type View = "all" | "favorites" | "recent";
 
+/** The real 3D render of a design, made once the card scrolls into view. */
+export function DesignPreview({ entry, alt }: { entry: CatalogDesign; alt: string }) {
+  const [src, setSrc] = useState(() => entry.image || cachedPreview(entry.id) || null);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (src) return;
+    let cancelled = false;
+    const node = ref.current;
+    if (!node) return;
+    const observer = new IntersectionObserver((seen) => {
+      if (!seen.some((s) => s.isIntersecting)) return;
+      observer.disconnect();
+      void renderPreview(entry).then((url) => { if (!cancelled) setSrc(url ?? previewImage(entry)); });
+    }, { rootMargin: "200px" });
+    observer.observe(node);
+    return () => { cancelled = true; observer.disconnect(); };
+  }, [entry, src]);
+  return (
+    <div ref={ref} className={`hd-preview${src ? "" : " loading"}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {src && <img src={src} alt={alt} decoding="async" />}
+    </div>
+  );
+}
+
 function Card({ entry, selected, favorite, onSelect, onFavorite }: { entry: CatalogDesign; selected: boolean; favorite: boolean; onSelect: () => void; onFavorite: () => void }) {
   return (
     <article className={`hd-card${selected ? " selected" : ""}`}>
       <button type="button" className="hd-card-main" onClick={onSelect} aria-pressed={selected}>
         <div className="hd-card-image">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={previewImage(entry)} alt={`${entry.name}, ${entry.view.toLowerCase()}`} loading="lazy" decoding="async" />
+          <DesignPreview entry={entry} alt={`${entry.name}, ${entry.categoryName}`} />
           <span>{entry.categoryName}</span>
           {selected ? <em className="hd-card-picked"><Check size={13} /> Selected</em> : <em className="hd-card-hover">Select</em>}
         </div>
@@ -26,7 +51,7 @@ function Card({ entry, selected, favorite, onSelect, onFavorite }: { entry: Cata
           <h3>{entry.name}</h3>
           <p>{entry.summary}</p>
           <div className="hd-dots" aria-label="Colour palette">{galleryPalette(entry.design).map((c) => <i key={c} style={{ background: c }} title={c} />)}</div>
-          <small>{entry.subcategory} · {entry.buildingType} · {entry.view}</small>
+          <small>{entry.subcategory} · {galleryMaterials(entry.design).slice(0, 2).join(" · ")}</small>
         </div>
       </button>
       <button type="button" className={`hd-card-heart${favorite ? " on" : ""}`} onClick={onFavorite} aria-pressed={favorite} aria-label={favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`}>
@@ -75,7 +100,7 @@ export function GalleryOverlay({ applying, onApply, onClose }: { applying: boole
         <div>
           <span>Design gallery</span>
           <h2>Start from an architectural design</h2>
-          <p>Select a design, then apply it. Your rooms, walls and measurements do not change, so the number of floors stays as drawn.</p>
+          <p>Previews show each design on a sample house. Applying one restyles your own house: rooms, walls, measurements and floors stay as drawn.</p>
         </div>
         <button type="button" className="hd-icon" onClick={onClose} aria-label="Close gallery"><X size={18} /></button>
       </header>
@@ -131,8 +156,7 @@ export function GalleryOverlay({ applying, onApply, onClose }: { applying: boole
       {selected && (
         <footer className="hd-gallery-bar">
           <div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewImage(selected)} alt="" />
+            <DesignPreview entry={selected} alt="" />
             <span><b>{selected.name}</b><small>{selected.categoryName} · {galleryMaterials(selected.design).slice(0, 2).join(" · ")}</small></span>
           </div>
           <button type="button" className="hd-button primary" disabled={applying} onClick={() => onApply(selected.id)}>

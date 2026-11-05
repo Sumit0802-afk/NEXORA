@@ -25,6 +25,14 @@ export interface ExteriorConfig {
   hasEntrancePortico: boolean;
   balconyRailing: RailingStyle;
   wallCladdingAccent: "none" | "stone_slate" | "timber_louvers" | "terracotta" | "white_marble";
+  /** Boundary wall details, in feet; see lib/boundary.ts. Absent in older projects, which then get the defaults. */
+  boundaryThickness?: number;
+  boundaryStyle?: "modern" | "minimalist" | "decorative" | "traditional";
+  boundaryMaterial?: string;
+  boundaryColor?: string;
+  gateWidth?: number;
+  gateCenter?: number | null;
+  hasPedestrianGate?: boolean;
 }
 
 export const DEFAULT_TERRACE_CONFIG: TerraceConfig = {

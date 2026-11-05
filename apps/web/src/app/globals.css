@@ -875,8 +875,12 @@ h1, h2, h3, h4 { font-family: var(--font-sans); letter-spacing: -0.025em; font-w
 
 .studio-topbar-right {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .studio-sync-pill {

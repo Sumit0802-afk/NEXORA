@@ -16,6 +16,7 @@ import {
 import { StaircaseGeometry } from "./StaircaseGeometry";
 import { WalkthroughController } from "./WalkthroughController";
 import { FurniturePiece } from "./FurnitureGeometry";
+import { BoundaryWalls } from "./BoundaryWalls";
 import { TerraceExteriorGeometry } from "./TerraceExteriorGeometry";
 import { StructuralFrameGeometry } from "./StructuralFrameGeometry";
 import { DesignAtmosphere, DesignedHouse, OVERLAY_LAYER, type ModelPick } from "./DesignedHouse";
@@ -983,6 +984,8 @@ export const HouseScene = forwardRef<HouseSceneHandle, HouseSceneProps>(function
         selectedFurnitureId={selectedFurnitureId}
         onSelectFurniture={onSelectFurniture}
       />
+
+      {!designed && <BoundaryWalls plan={plan} />}
 
       {/* Rooftop Terrace & Exterior Designer Architecture */}
       {(!designModel || designModel.walkableRoof) && (

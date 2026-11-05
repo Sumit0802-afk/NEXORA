@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { DoorOpen, Eye, Undo2 } from "lucide-react";
 import type { FloorPlan } from "@houseplan/design-schema";
 import { RAILING_STYLES } from "@/lib/terrace-catalog";
+import { BoundaryPanel } from "@/components/exterior/BoundaryPanel";
 import type { RailingStyle } from "@/lib/terrace-catalog";
 import { floorName } from "@/lib/floors";
 import { applyFacadeStyle } from "@/lib/house-design/styles";
@@ -258,7 +259,7 @@ export function InteriorPanel({ design, plan, edit, roomId, onRoom, onLookInside
   );
 }
 
-export function EnvironmentPanel({ design, edit }: Props) {
+export function EnvironmentPanel({ design, edit, plan, onPlan }: Props & { plan: FloorPlan; onPlan: (next: FloorPlan) => void }) {
   const env = design.environment;
   const finishEdit = (path: string) => (f: Finish, g?: string) => edit(path, f, g);
   return (
@@ -290,7 +291,6 @@ export function EnvironmentPanel({ design, edit }: Props) {
           </>
         )}
         <FinishPicker label="Driveway" value={env.driveway} categories={GROUND_MATERIALS} compact onChange={finishEdit("environment.driveway")} />
-        <FinishPicker label="Boundary wall" value={env.boundary} categories={WALL_MATERIALS} compact onChange={finishEdit("environment.boundary")} />
       </Group>
       <Group title="Outdoor lighting" hint="See it in the Golden hour and Night previews.">
         <Choices
@@ -301,6 +301,9 @@ export function EnvironmentPanel({ design, edit }: Props) {
         />
         <ColorInput label="Light colour" value={env.lighting.color} onChange={(c) => edit("environment.lighting.color", c, "lightColor")} />
         <Slider label="Brightness" value={env.lighting.intensity * 100} min={20} max={200} step={5} unit="%" onChange={(v) => edit("environment.lighting.intensity", v / 100, "lightIntensity")} />
+      </Group>
+      <Group title="Boundary wall and gates" hint="Saved with the floor plan, so the 2D editor and 3D view show the same wall.">
+        <BoundaryPanel plan={plan} onChange={onPlan} />
       </Group>
     </div>
   );

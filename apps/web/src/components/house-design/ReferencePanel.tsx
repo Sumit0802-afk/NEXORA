@@ -7,6 +7,7 @@ import { ApiError, getAiStatus, getHouseReadJob, startHouseReadJob } from "@/lib
 import { loadPhoto } from "@/lib/photo-upload";
 import { getCatalogDesign, previewImage } from "@/lib/house-design/catalog";
 import { useHouseDesign } from "@/lib/house-design/context";
+import { DesignPreview } from "./GalleryOverlay";
 import { galleryMaterials, galleryPalette } from "@/lib/house-design/gallery";
 import { baseRecord, type MatchRow } from "@/lib/house-design/design-engine";
 import { STAGE_LABEL, generateFromReferences, referenceFromUpload, type DeepReader, type GenerationStage, type GenerationView } from "@/lib/house-design/pipeline";
@@ -169,8 +170,7 @@ export function ReferencePanel({ plan, projectId, onOpenGallery, applying, onApp
 
       {picked && (
         <section className="hd-picked">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={previewImage(picked)} alt={`Selected design: ${picked.name}`} />
+          <DesignPreview entry={picked} alt={`Selected design: ${picked.name}`} />
           <h3>{picked.name}</h3>
           <small>{picked.categoryName} · {picked.subcategory}</small>
           <p>{galleryMaterials(picked.design).join(" · ")}</p>

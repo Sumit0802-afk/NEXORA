@@ -1,4 +1,6 @@
 import type { FloorPlan, Room, RoomType } from "@houseplan/design-schema";
+import { boundaryOf } from "../boundary";
+import { boundarySurface } from "./boundary-model";
 import { getMaterial } from "./materials";
 import { getAt, type DesignSection, type Finish, type HouseDesign, type LightingPreview } from "./schema";
 
@@ -120,7 +122,10 @@ export function surfaceFor(part: string, design: HouseDesign, plan: FloorPlan, l
     case "balconySlab":
       return ext.balcony.slab;
     case "compound":
-      return env.boundary;
+    case "boundaryPillar":
+    case "boundaryCoping":
+    case "gate":
+      return boundarySurface(part, boundaryOf(plan))!;
     case "interiorWall":
       return design.interior.wall;
     case "interiorDoor":
@@ -173,7 +178,6 @@ export const PAINTABLE_PARTS: PartTarget[] = [
   { path: "environment.ground", label: "Garden ground", section: "environment" },
   { path: "environment.path.finish", label: "Pathway", section: "environment" },
   { path: "environment.driveway", label: "Driveway", section: "environment" },
-  { path: "environment.boundary", label: "Boundary wall", section: "environment" },
 ];
 
 const PART_PATHS: Record<string, string> = {
@@ -181,7 +185,7 @@ const PART_PATHS: Record<string, string> = {
   trim: "exterior.trim", column: "exterior.trim", corbel: "exterior.trim", shutter: "exterior.trim", shutterSlat: "exterior.trim", roofTrim: "exterior.trim",
   roof: "exterior.roof.finish", fascia: "exterior.roof.fascia", soffit: "exterior.roof.soffit", windowFrame: "exterior.window.frame", glass: "exterior.window.glass",
   doorGlass: "exterior.window.glass", door: "exterior.door.finish", railing: "exterior.balcony.rail", railGlass: "exterior.balcony.rail", balconySlab: "exterior.balcony.slab",
-  interiorWall: "interior.wall", interiorDoor: "interior.door.finish", plot: "environment.ground", path: "environment.path.finish", drive: "environment.driveway", compound: "environment.boundary",
+  interiorWall: "interior.wall", interiorDoor: "interior.door.finish", plot: "environment.ground", path: "environment.path.finish", drive: "environment.driveway",
 };
 
 /** Resolves a clicked mesh to what the inspector should edit. */
@@ -200,7 +204,7 @@ const OBJECT_PART_LABEL: Record<string, string> = {
   walls: "Wall surface", accent: "Accent cladding", fins: "Timber fins", base: "Plinth", trim: "Trim", corbel: "Corbels", roof: "Roof covering", fascia: "Fascia",
   soffit: "Soffit", gableWall: "Gable wall", roofTrim: "Parapet coping", windowFrame: "Frame", glass: "Glass", shutter: "Shutters", shutterSlat: "Shutter slats", door: "Door leaf",
   interiorDoor: "Door leaf", doorGlass: "Door glass", hardware: "Hardware", railing: "Railing", railGlass: "Railing glass", balconySlab: "Slab", step: "Steps", column: "Columns",
-  compound: "Wall", interiorWall: "Wall core", trunk: "Trunk", foliage: "Foliage", drive: "Surface",
+  compound: "Wall", boundaryPillar: "Pillars", boundaryCoping: "Coping", gate: "Gate", interiorWall: "Wall core", trunk: "Trunk", foliage: "Foliage", drive: "Surface",
 };
 
 /** What a part is called once an object is selected. A wall's room lining is named after the room. */

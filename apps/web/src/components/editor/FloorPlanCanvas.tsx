@@ -7,6 +7,7 @@ import type { FloorPlan, FurnitureItem, Room, RoomType, Wall, Opening, Column, B
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { nearestWallOrEdge, snapToGrid } from "@/lib/geometry";
+import { boundaryLayout } from "@/lib/boundary";
 
 type RoomBounds = { minX: number; minY: number; maxX: number; maxY: number };
 type Mode = "select" | "room" | "wall" | "measure" | "door" | "window";
@@ -919,6 +920,25 @@ export const FloorPlanCanvas = forwardRef<Konva.Stage, {
                 listening={false}
               />
             ))}
+          {/* Boundary wall and gates (ground floor only), drawn over the rooms, from the same layout the 3D view builds */}
+          {levelIndex === 0 && (() => {
+            const b = boundaryLayout(plan);
+            const t = b.settings.thickness * scale;
+            const p = (x: number, y: number) => [offsetX + x * scale, offsetY + y * scale];
+            return (
+              <Group listening={false}>
+                {b.runs.map((r) => <Line key={r.id} points={[...p(...r.from), ...p(...r.to)]} stroke="#8C8577" strokeWidth={Math.max(3, t)} />)}
+                {b.gates.map((g) => (
+                  <Line key={g.id} points={[...p(g.from, b.settings.thickness / 2), ...p(g.to, b.settings.thickness / 2)]} stroke="#5146A5" strokeWidth={Math.max(2, t * 0.5)} dash={[6, 4]} />
+                ))}
+                {b.pillars.map((q, i) => {
+                  const [x, y] = p(q.x - q.size / 2, q.y - q.size / 2);
+                  return <Rect key={i} x={x} y={y} width={q.size * scale} height={q.size * scale} fill="#5D5970" />;
+                })}
+              </Group>
+            );
+          })()}
+
         </Layer>
       </Stage>
     </div>

@@ -2,6 +2,7 @@ import type { FloorPlan, RoomType } from "@houseplan/design-schema";
 import { OPEN_TYPES, type DoorLeaf, type RoomFloor, type SceneGeometry, type WindowPane } from "../scene-geometry";
 import type { RailingStyle } from "../terrace-catalog";
 import { EPS, isEnclosed, mergeRects, rectOf, subtract, type Pt, type Rect } from "./geometry-engine";
+import { boundaryPieces } from "./boundary-model";
 import type { SceneObject, ObjectKind } from "./objects";
 import { ELEVATION_LABEL, type CeilingStyle, type DoorDesign, type Elevation, type HouseDesign, type ObjectOverride, type WindowGrid, type WindowShape, type WindowTrim } from "./schema";
 
@@ -873,6 +874,10 @@ export function buildDesignModel(geometry: SceneGeometry, plan: FloorPlan, desig
     if (ext.details.portico !== "none") {
       asObject({ id: "portico:entry", kind: "portico", label: "Entrance portico", level: groundLevel, elevation: elevationOf(porch.normal), host: null }, () => buildPortico(out, porch, y, entryWallTop, design, ft));
     }
+  }
+
+  for (const piece of boundaryPieces(plan)) {
+    asObject({ id: piece.id, kind: piece.kind, label: piece.label, level: 0, elevation: null, host: null }, () => out.push(...piece.prims));
   }
 
   const walkableRoof = (ext.roof.type === "flat" && !ext.roof.parapet) && geometry.floors.some((f) => f.level === levels[levels.length - 1] && f.type === "staircase");

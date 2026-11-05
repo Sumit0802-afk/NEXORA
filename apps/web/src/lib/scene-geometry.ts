@@ -210,6 +210,8 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
   // 2. Classify each elementary interval by what lies on either side, and merge equal neighbours.
   const pieces = new Map<string, Piece[]>();
   const boundaryHeight = Math.min(3.5 * ft, wallHeight);
+  // With the plot's boundary wall on (lib/boundary.ts), it encloses the ground floor and these short pieces would double it.
+  const fullBoundary = (plan.exteriorConfig as { hasBoundaryWall?: boolean } | undefined)?.hasBoundaryWall ?? true;
   for (const [key, { line, cuts }] of lines) {
     const sorted = [...cuts].sort((p, q) => p - q);
     const run: Piece[] = [];
@@ -232,7 +234,7 @@ function buildLevel(plan: FloorPlan, levelIndex: number) {
         piece = { kind, thickness: (kind === "interior" ? 0.5 : 0.75) * ft, height: wallHeight };
       } else if (explicit) {
         piece = { kind: explicit.kind || "interior", thickness: (explicit.thickness || 0.5) * ft, height: explicit.height || wallHeight };
-      } else if (onBoundary || openEdge) {
+      } else if ((onBoundary && !(levelIndex === 0 && fullBoundary)) || (openEdge && !onBoundary)) {
         const streetGate = line.axis === "h" && line.at < EPS && (low?.type === "parking" || high?.type === "parking");
         if (!streetGate) piece = { kind: "boundary", thickness: 0.5 * ft, height: boundaryHeight };
       }

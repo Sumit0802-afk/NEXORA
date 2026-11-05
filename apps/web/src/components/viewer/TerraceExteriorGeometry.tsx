@@ -381,36 +381,6 @@ export function TerraceExteriorGeometry({
         </group>
       )}
 
-      {/* Front Boundary Wall & Main Gate */}
-      {!designManaged && exteriorConfig?.hasBoundaryWall && (
-        <group position={[0, 0, -plotD / 2 - 6.0]}>
-          {/* Left masonry boundary wall */}
-          <mesh position={[-plotW * 0.35, 2.2, 0]} castShadow receiveShadow>
-            <boxGeometry args={[plotW * 0.4, 4.4, 0.6]} />
-            <meshStandardMaterial color="#EAE8E4" roughness={0.7} />
-          </mesh>
-          {/* Right masonry boundary wall */}
-          <mesh position={[plotW * 0.35, 2.2, 0]} castShadow receiveShadow>
-            <boxGeometry args={[plotW * 0.4, 4.4, 0.6]} />
-            <meshStandardMaterial color="#EAE8E4" roughness={0.7} />
-          </mesh>
-          {/* Gate Pillars */}
-          {[-plotW * 0.15, plotW * 0.15].map((gx, idx) => (
-            <mesh key={idx} position={[gx, 2.8, 0]} castShadow>
-              <boxGeometry args={[1.0, 5.6, 1.0]} />
-              <meshStandardMaterial color="#2E333D" roughness={0.4} />
-            </mesh>
-          ))}
-          {/* Main Driveway Gate */}
-          {exteriorConfig?.hasMainGate && (
-            <mesh position={[0, 2.2, 0]} castShadow>
-              <boxGeometry args={[plotW * 0.28, 4.2, 0.08]} />
-              <meshStandardMaterial color="#1A1C22" metalness={0.9} roughness={0.25} />
-            </mesh>
-          )}
-        </group>
-      )}
-
       {/* Driveway Pavers */}
       {!designManaged && exteriorConfig?.hasDrivewayPavers && (
         <mesh position={[0, -0.02, -plotD / 2 - 3.0]} receiveShadow>

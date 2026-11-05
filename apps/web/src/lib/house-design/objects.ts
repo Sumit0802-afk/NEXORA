@@ -4,7 +4,7 @@ import type { Finish, Elevation, HouseDesign, ObjectOverride } from "./schema";
 
 export type ObjectKind =
   | "wall" | "interiorWall" | "window" | "door" | "interiorDoor" | "balcony" | "railing" | "roof"
-  | "portico" | "floor" | "ceiling" | "boundary" | "driveway" | "tree";
+  | "portico" | "floor" | "ceiling" | "boundary" | "gate" | "driveway" | "tree";
 
 export type SceneObject = {
   id: string;
@@ -28,7 +28,8 @@ export const OBJECT_GROUPS: { title: string; kinds: ObjectKind[] }[] = [
   { title: "Doors", kinds: ["door", "interiorDoor"] },
   { title: "Balconies and railings", kinds: ["balcony", "railing", "portico"] },
   { title: "Rooms", kinds: ["floor", "ceiling"] },
-  { title: "Garden", kinds: ["tree", "driveway", "boundary"] },
+  { title: "Boundary and gates", kinds: ["boundary", "gate"] },
+  { title: "Garden", kinds: ["tree", "driveway"] },
 ];
 
 /** Puts a change onto one object, leaving the design it came from untouched. */
